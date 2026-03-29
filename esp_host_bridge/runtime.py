@@ -343,10 +343,16 @@ from .metrics import (
     get_home_assistant_integrations,
     get_mem_percent,
     get_net_bytes_local,
+    get_unraid_array_usage_pct,
+    get_unraid_cpu_percent,
+    get_unraid_disk_temp_c,
+    get_unraid_mem_percent,
     get_unraid_status_bundle,
     get_uptime_seconds,
     get_virtual_machines_from_virsh,
     normalize_docker_data,
+    normalize_unraid_docker_data,
+    normalize_unraid_vm_data,
     vm_summary_counts,
 )
 from .serial import serial_io_bypassed, try_open_serial_once
@@ -760,12 +766,31 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
             bundle = get_unraid_status_bundle(args.unraid_api_url, args.unraid_api_key, timeout=args.timeout)
             state.cached_unraid_info = bundle.get("info") if isinstance(bundle.get("info"), dict) else {}
             state.cached_unraid_array = bundle.get("array") if isinstance(bundle.get("array"), dict) else {}
-            docker_bundle = normalize_docker_data(bundle.get("docker"))
+            docker_bundle = normalize_unraid_docker_data(bundle.get("docker"))
             state.cached_docker = docker_bundle
             state.cached_docker_counts = docker_summary_counts(docker_bundle)
+            vm_bundle = normalize_unraid_vm_data(bundle.get("vms"))
+            state.cached_vms = vm_bundle
+            state.cached_vm_counts = vm_summary_counts(vm_bundle)
             state.last_docker_refresh_ts = now
+            state.last_vm_refresh_ts = now
             state.last_unraid_refresh_ts = now
             state.unraid_api_ok = True
+            api_cpu_pct = get_unraid_cpu_percent(bundle)
+            if api_cpu_pct is not None:
+                cpu_pct = api_cpu_pct
+            api_mem_pct = get_unraid_mem_percent(bundle)
+            if api_mem_pct is not None:
+                mem_pct = api_mem_pct
+            api_disk_temp = get_unraid_disk_temp_c(bundle, args.disk_temp_device or args.disk_device or state.active_disk)
+            if api_disk_temp is not None:
+                state.disk_temp_c = float(api_disk_temp)
+                state.disk_temp_available = True
+                state.last_disk_temp_ts = now
+            api_disk_pct = get_unraid_array_usage_pct(bundle)
+            if api_disk_pct is not None:
+                state.disk_usage_pct = float(api_disk_pct)
+                state.last_disk_usage_ts = now
         except Exception as e:
             state.unraid_api_ok = False
             if (now - state.last_unraid_warn_ts) >= DOCKER_WARN_INTERVAL_SECONDS:
@@ -814,7 +839,8 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
 
     vm_enabled = not bool(getattr(args, "disable_vm_polling", False))
     vm_interval = max(0.0, float(getattr(args, "vm_interval", 5.0) or 0.0))
-    if vm_enabled and vm_interval > 0.0 and (not state.last_vm_refresh_ts or (now - state.last_vm_refresh_ts) >= vm_interval):
+    vm_refreshed_from_unraid = bool(unraid_api_enabled and state.unraid_api_ok)
+    if vm_enabled and vm_interval > 0.0 and not vm_refreshed_from_unraid and (not state.last_vm_refresh_ts or (now - state.last_vm_refresh_ts) >= vm_interval):
         try:
             if homeassistant_mode:
                 vms = get_home_assistant_integrations(timeout=args.timeout)

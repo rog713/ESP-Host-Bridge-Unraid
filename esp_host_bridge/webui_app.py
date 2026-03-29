@@ -357,28 +357,28 @@ def create_app(
         workload_enable_hint = (
             "Turn add-on polling on or off without changing the Home Assistant Supervisor data source."
             if homeassistant_mode
-            else "Turn Docker polling on or off without deleting the socket path."
+            else "Turn Docker polling on or off. When the Unraid API is enabled, Docker inventory comes from GraphQL and the socket path is mainly used for control commands and fallback."
         )
-        workload_source_label = "Add-on Source" if homeassistant_mode else "Docker Socket"
+        workload_source_label = "Add-on Source" if homeassistant_mode else "Docker Socket / Control Path"
         workload_source_hint = (
             "Home Assistant app mode reads add-ons from the Supervisor API. This value is ignored."
             if homeassistant_mode
-            else "Only used when Docker polling is enabled."
+            else "Used for direct Docker control commands and fallback polling when the Unraid API is disabled or unavailable."
         )
         workload_interval_label = "Add-on Poll Interval (s)" if homeassistant_mode else "Docker Poll Interval (s)"
         workload_interval_hint = (
             "How often the Supervisor add-on list is refreshed. Set to <code>0</code> to disable add-on polling."
             if homeassistant_mode
-            else "Set to <code>0</code> to disable Docker polling entirely. <code>2</code> is a good default on low-power hosts."
+            else "Fallback Docker polling interval. When the Unraid API is enabled and healthy, Docker inventory comes from GraphQL instead."
         )
         unraid_api_body = ""
         if not homeassistant_mode:
             unraid_api_body = f"""
       <details class=\"section\" data-section-key=\"unraid_api\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-server-network\"></span></span>Unraid API</summary><div class=\"section-body\">
-      <div class=\"row\"><label>Enable Unraid API</label><div><input name=\"unraid_api_enabled\" type=\"checkbox\" {'checked' if cfg.get('unraid_api_enabled', False) else ''}><div class=\"hint\">Uses the Unraid 7.2+ GraphQL API for supported system, array, and Docker data. VM data still uses <code>virsh</code>.</div></div></div>
+      <div class=\"row\"><label>Enable Unraid API</label><div><input name=\"unraid_api_enabled\" type=\"checkbox\" {'checked' if cfg.get('unraid_api_enabled', False) else ''}><div class=\"hint\">Uses the Unraid 7.2+ GraphQL API for system info, array state/capacity, Docker inventory, VM inventory, CPU %, memory %, and disk temperature.</div></div></div>
       <div class=\"row\"><label>GraphQL URL</label><div><input name=\"unraid_api_url\" type=\"text\" value=\"{html.escape(str(cfg.get('unraid_api_url', 'http://127.0.0.1:3001/graphql')))}\"><div class=\"hint\">Default local endpoint on Unraid is <code>http://127.0.0.1:3001/graphql</code>.</div></div></div>
-      <div class=\"row\"><label>API Key</label><div><input name=\"unraid_api_key\" type=\"password\" autocomplete=\"new-password\" value=\"\"><div class=\"hint\">Sent as the <code>x-api-key</code> header. Leave blank to keep the current key. Create a key in Unraid with at least <code>INFO:READ_ANY</code>, <code>ARRAY:READ_ANY</code>, and <code>DOCKER:READ_ANY</code>.</div></div></div>
-      <div class=\"row\"><label>API Poll Interval (s)</label><div><input name=\"unraid_api_interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('unraid_api_interval', 5.0)))}\"><div class=\"hint\">How often Unraid API system/array/docker data is refreshed. <code>5</code> is a good default.</div></div></div>
+      <div class=\"row\"><label>API Key</label><div><input name=\"unraid_api_key\" type=\"password\" autocomplete=\"new-password\" value=\"\"><div class=\"hint\">Sent as the <code>x-api-key</code> header. Leave blank to keep the current key. Create a key in Unraid with at least <code>INFO:READ_ANY</code>, <code>ARRAY:READ_ANY</code>, <code>DOCKER:READ_ANY</code>, <code>VMS:READ_ANY</code>, and <code>DISK:READ_ANY</code>.</div></div></div>
+      <div class=\"row\"><label>API Poll Interval (s)</label><div><input name=\"unraid_api_interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('unraid_api_interval', 5.0)))}\"><div class=\"hint\">How often Unraid API system, array, Docker, VM, CPU, memory, and disk temperature data is refreshed. <code>5</code> is a good default.</div></div></div>
       </div></details>
             """
         vm_section_title = "Integrations" if homeassistant_mode else "Virtual Machines"
@@ -386,25 +386,25 @@ def create_app(
         vm_enable_hint = (
             "Turn integration polling on or off without changing the Home Assistant Core query settings."
             if homeassistant_mode
-            else "Turn VM polling on or off without deleting the <code>virsh</code> settings."
+            else "Turn VM polling on or off. When the Unraid API is enabled, VM inventory comes from GraphQL and <code>virsh</code> remains mainly for control commands and fallback."
         )
-        vm_binary_label = "Integration Source" if homeassistant_mode else "Virsh Binary"
+        vm_binary_label = "Integration Source" if homeassistant_mode else "Virsh Binary / Control Path"
         vm_binary_hint = (
             "Home Assistant app mode reads integrations from the Home Assistant Core WebSocket API. This value is ignored."
             if homeassistant_mode
-            else "Path to <code>virsh</code>. Use an absolute path if the Web UI launches outside your shell environment."
+            else "Path to <code>virsh</code>. Used for VM control commands and fallback polling when the Unraid API is disabled or unavailable."
         )
         vm_uri_label = "Integration Query" if homeassistant_mode else "Virsh URI"
         vm_uri_hint = (
             "Home Assistant app mode groups entity-registry entries by integration domain. This value is ignored."
             if homeassistant_mode
-            else "Optional libvirt connection URI, for example <code>qemu:///system</code>."
+            else "Optional libvirt connection URI for VM control commands and fallback polling, for example <code>qemu:///system</code>."
         )
         vm_interval_label = "Integration Poll Interval (s)" if homeassistant_mode else "VM Poll Interval (s)"
         vm_interval_hint = (
             "How often the Home Assistant integration registry is refreshed. <code>5</code> is a good default."
             if homeassistant_mode
-            else "How often VM data is refreshed. <code>5</code> is a good default for low-power hosts."
+            else "Fallback VM polling interval. When the Unraid API is enabled and healthy, VM inventory comes from GraphQL instead."
         )
         readonly_attr = ' readonly' if homeassistant_mode else ''
         workload_source_value = (
@@ -494,7 +494,7 @@ def create_app(
       <div class=\"row\"><label>Update Interval (s)</label><div><input name=\"interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('interval', 1.0)))}\"><div class=\"hint\">How often metrics are sent to the ESP device.</div></div></div>
       <div class=\"row\"><label>Connection Timeout (s)</label><div><input name=\"timeout\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('timeout', 2.0)))}\"><div class=\"hint\">Timeout used for serial reads and host metric checks.</div></div></div>
       <div class=\"row\"><label>Disk Device</label><div><input id=\"diskDeviceInput\" name=\"disk_device\" type=\"text\" value=\"{html.escape(str(cfg.get('disk_device', '')))}\"><div class=\"hint\">Optional. Set a device path like <code>/dev/sda</code> if auto-detection is not correct.</div></div></div>
-      <div class=\"row\"><label>Disk Temp Device</label><div><input id=\"diskTempDeviceInput\" name=\"disk_temp_device\" type=\"text\" value=\"{html.escape(str(cfg.get('disk_temp_device', '')))}\"><div class=\"hint\">Optional override for temperature checks (for example <code>/dev/nvme0</code> or <code>/dev/sda</code>).</div></div></div>
+      <div class=\"row\"><label>Disk Temp Device</label><div><input id=\"diskTempDeviceInput\" name=\"disk_temp_device\" type=\"text\" value=\"{html.escape(str(cfg.get('disk_temp_device', '')))}\"><div class=\"hint\">Optional override for disk temperature selection. On Unraid API mode this is used to prefer a specific disk; otherwise it falls back to local checks such as <code>/dev/nvme0</code> or <code>/dev/sda</code>.</div></div></div>
       <div class=\"row\"><label>Detected Disk Devices</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"diskDeviceSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh Disks)</option></select><button id=\"refreshDiskBtn\" class=\"secondary\" type=\"button\">Refresh Disks</button><button id=\"useDiskBtn\" class=\"secondary\" type=\"button\">Use for Disk</button><button id=\"useDiskTempBtn\" class=\"secondary\" type=\"button\">Use for Temp</button><button id=\"useDiskBothBtn\" class=\"secondary\" type=\"button\">Use for Both</button></div><div id=\"diskResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
       <div class=\"row\"><label>CPU Temp Sensor</label><div><div style=\"display:flex; align-items:center; gap:8px; flex-wrap:wrap;\"><input id=\"cpuTempSensorInput\" name=\"cpu_temp_sensor\" type=\"text\" value=\"{html.escape(str(cfg.get('cpu_temp_sensor', '')))}\"><span id=\"cpuTempSensorChip\" class=\"sensor-chip auto\">Auto</span></div><div class=\"hint\">Optional. Leave blank for auto CPU temp detection, or choose a detected sensor below.</div></div></div>
       <div class=\"row\"><label>Detected CPU Temp Sensors</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"cpuTempSensorSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh CPU Temp Sensors)</option></select><button id=\"refreshCpuTempSensorBtn\" class=\"secondary\" type=\"button\">Refresh CPU Temp Sensors</button><button id=\"useCpuTempSensorBtn\" class=\"secondary\" type=\"button\">Use Sensor</button></div><div id=\"cpuTempSensorResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>

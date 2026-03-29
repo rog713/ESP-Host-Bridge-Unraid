@@ -22,7 +22,7 @@ The build defaults to the version declared in `pyproject.toml`.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.29.1 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.29.2 unraid_plugin/build_unraid_plugin.sh
 ```
 
 ## Runtime layout on Unraid
@@ -54,4 +54,4 @@ The Unraid page provides:
 
 - The plugin packages the maintained `esp_host_bridge` package, not the older `host_metrics.py` runtime.
 - Optional Unraid GraphQL API support is configured in the main Web UI, not on the wrapper page.
-- VM polling remains on the existing `virsh` path for compatibility.
+- Docker socket and `virsh` remain available for control commands and fallback paths when the Unraid API is disabled or unavailable.

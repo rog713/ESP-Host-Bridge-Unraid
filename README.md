@@ -30,8 +30,12 @@ It keeps the current `esp_host_bridge` runtime and Web UI together with a dedica
 - adds optional Unraid 7.2+ GraphQL API support for:
   - system information
   - array state and capacity
-  - Docker container listing
-- keeps VM polling on the existing `virsh` path as a fallback and compatibility path
+  - Docker container inventory
+  - VM inventory
+  - CPU utilization
+  - memory utilization
+  - disk temperature
+- keeps Docker socket and `virsh` available as fallback and control-command paths
 
 ## Build the Unraid plugin
 
@@ -51,7 +55,7 @@ The plugin build reads its version from `pyproject.toml` by default.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.29.1 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.29.2 unraid_plugin/build_unraid_plugin.sh
 ```
 
 ## Runtime configuration on Unraid
@@ -74,6 +78,8 @@ If you enable the optional Unraid API path in the main Web UI, use a Unraid 7.2+
 - `INFO:READ_ANY`
 - `ARRAY:READ_ANY`
 - `DOCKER:READ_ANY`
+- `VMS:READ_ANY`
+- `DISK:READ_ANY`
 
 The default local GraphQL endpoint is:
 
