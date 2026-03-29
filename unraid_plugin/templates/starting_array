@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+PLUGIN_DIR="/usr/local/emhttp/plugins/esp-host-bridge"
+# shellcheck disable=SC1091
+. "${PLUGIN_DIR}/scripts/plugin-env.sh"
+
+if hm::autostart_enabled; then
+  /etc/rc.d/rc.esp_host_bridge start || true
+fi

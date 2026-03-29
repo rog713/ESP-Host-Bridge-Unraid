@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+/etc/rc.d/rc.esp_host_bridge stop || true

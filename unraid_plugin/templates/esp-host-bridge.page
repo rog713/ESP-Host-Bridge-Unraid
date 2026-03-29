@@ -1,0 +1,413 @@
+Title="ESP Host Bridge"
+Tag="line-chart"
+---
+<?php
+$csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
+?>
+<style>
+:root {
+  --ehb-bg: var(--canvas, #0f1725);
+  --ehb-panel: var(--container2, rgba(255,255,255,.04));
+  --ehb-panel-strong: var(--container3, rgba(255,255,255,.06));
+  --ehb-border: var(--divider, rgba(255,255,255,.10));
+  --ehb-text: var(--text, #e8edf7);
+  --ehb-muted: var(--text-alt, #9ea9c0);
+  --ehb-accent: var(--link, #5bc0ff);
+  --ehb-ok-bg: rgba(28, 176, 89, .16);
+  --ehb-ok-text: #7ae3a0;
+  --ehb-warn-bg: rgba(255, 180, 0, .16);
+  --ehb-warn-text: #ffd166;
+  --ehb-danger-bg: rgba(255, 82, 82, .16);
+  --ehb-danger-text: #ff9a9a;
+}
+.hm-wrap { display:grid; gap:16px; color:var(--ehb-text); }
+.hm-hero { display:grid; gap:16px; grid-template-columns: minmax(0, 1.3fr) minmax(320px, .9fr); }
+.hm-card { border:1px solid var(--ehb-border); border-radius:12px; padding:18px; background:var(--ehb-panel); box-shadow:none; }
+.hm-card h2 { margin:0 0 12px; font-size:18px; color:var(--ehb-text); }
+.hm-card h3 { margin:0 0 10px; font-size:15px; color:var(--ehb-text); }
+.hm-grid { display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.hm-summary-grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.hm-summary-card { border:1px solid var(--ehb-border); border-radius:12px; padding:12px 14px; background:var(--ehb-panel-strong); }
+.hm-summary-k { color:var(--ehb-muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+.hm-summary-v { color:var(--ehb-text); font-size:20px; font-weight:700; line-height:1.2; word-break:break-word; }
+.hm-summary-v-sm { font-size:15px; }
+.hm-pills { display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top:14px; }
+.hm-pill { display:flex; align-items:center; gap:8px; min-height:40px; padding:9px 12px; border-radius:999px; border:1px solid var(--ehb-border); background:var(--ehb-panel-strong); font-weight:600; }
+.hm-pill.ok { background:var(--ehb-ok-bg); color:var(--ehb-ok-text); }
+.hm-pill.warn { background:var(--ehb-warn-bg); color:var(--ehb-warn-text); }
+.hm-pill.danger { background:var(--ehb-danger-bg); color:var(--ehb-danger-text); }
+.hm-pill.neutral { color:var(--ehb-text); }
+.hm-pill::before { content:''; width:10px; height:10px; border-radius:999px; background:currentColor; opacity:.95; flex:0 0 auto; }
+.hm-kv { display:grid; grid-template-columns: 150px minmax(0, 1fr); gap:8px 12px; }
+.hm-kv div:nth-child(odd) { color:var(--ehb-muted); font-weight:600; }
+.hm-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+.hm-note { margin-top:10px; color:var(--ehb-muted); line-height:1.45; }
+.hm-flash { margin-bottom:12px; }
+.hm-badge { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; font-weight:600; border:1px solid var(--ehb-border); }
+.hm-badge.ok { background:var(--ehb-ok-bg); color:var(--ehb-ok-text); }
+.hm-badge.warn { background:var(--ehb-warn-bg); color:var(--ehb-warn-text); }
+.hm-badge.danger { background:var(--ehb-danger-bg); color:var(--ehb-danger-text); }
+.hm-badge.neutral { background:var(--ehb-panel-strong); color:var(--ehb-text); }
+.hm-form-grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items:end; }
+.hm-form-grid label { display:grid; gap:6px; font-weight:600; color:var(--ehb-text); }
+.hm-form-grid input[type="text"], .hm-form-grid input[type="number"] { width:100%; background:var(--ehb-panel-strong); border:1px solid var(--ehb-border); color:var(--ehb-text); border-radius:10px; padding:10px 12px; }
+.hm-check { display:flex; gap:8px; align-items:center; }
+.hm-links { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+.hm-links a.btn { text-decoration:none; }
+.hm-log-box { white-space:pre-wrap; overflow:auto; max-height:420px; min-height:220px; margin:0; padding:14px; border-radius:12px; border:1px solid var(--ehb-border); background:rgba(0,0,0,.28); color:var(--ehb-text); font-size:12px; line-height:1.45; }
+@media (max-width: 1100px) {
+  .hm-hero { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .hm-kv { grid-template-columns: 1fr; }
+  .hm-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hm-pills { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 540px) {
+  .hm-summary-grid, .hm-pills, .hm-grid, .hm-form-grid { grid-template-columns: 1fr; }
+}
+</style>
+<div class="hm-wrap">
+  <div id="hmFlash" class="hm-flash"></div>
+
+  <div class="hm-hero">
+    <section class="hm-card">
+      <h2>Bridge Status</h2>
+      <div class="hm-summary-grid">
+        <div class="hm-summary-card"><div class="hm-summary-k">Plugin</div><div class="hm-summary-v hm-summary-v-sm" id="hmPluginState">Loading…</div></div>
+        <div class="hm-summary-card"><div class="hm-summary-k">Service</div><div class="hm-summary-v hm-summary-v-sm" id="hmServiceState">Loading…</div></div>
+        <div class="hm-summary-card"><div class="hm-summary-k">Bridge API</div><div class="hm-summary-v hm-summary-v-sm" id="hmBridgeState">Loading…</div></div>
+        <div class="hm-summary-card"><div class="hm-summary-k">Bridge Version</div><div class="hm-summary-v hm-summary-v-sm" id="hmBridgeVersion">--</div></div>
+        <div class="hm-summary-card"><div class="hm-summary-k">PID</div><div class="hm-summary-v" id="hmPid">--</div></div>
+        <div class="hm-summary-card"><div class="hm-summary-k">Started</div><div class="hm-summary-v hm-summary-v-sm" id="hmStarted">--</div></div>
+      </div>
+      <div class="hm-pills">
+        <div class="hm-pill neutral" id="hmTelemetryHealth">Telemetry: --</div>
+        <div class="hm-pill neutral" id="hmSerialHealth">Serial: --</div>
+        <div class="hm-pill neutral" id="hmHostStatus">Host: --</div>
+        <div class="hm-pill neutral" id="hmIfaceStatus">Active Interface: --</div>
+        <div class="hm-pill neutral" id="hmDisplayStatus">Display: --</div>
+        <div class="hm-pill neutral" id="hmEspBoots">ESP Boots: --</div>
+        <div class="hm-pill neutral" id="hmEspReset">Last ESP Reset: --</div>
+        <div class="hm-pill neutral" id="hmEspWifi">ESP Wi-Fi: --</div>
+        <div class="hm-pill neutral" id="hmEspWifiDetail">ESP Wi-Fi Detail: --</div>
+        <div class="hm-pill neutral" id="hmReconnects">Reconnects: --</div>
+        <div class="hm-pill neutral" id="hmLastComm">Comm: --</div>
+        <div class="hm-pill neutral" id="hmUnraidApi">Unraid API: --</div>
+        <div class="hm-pill neutral" id="hmArrayState">Array: --</div>
+        <div class="hm-pill neutral" id="hmArrayCapacity">Array Usage: --</div>
+        <div class="hm-pill neutral" id="hmDockerSource">Docker Source: --</div>
+      </div>
+      <div class="hm-actions">
+        <button type="button" class="btn btn-primary" id="hmStartBtn">Start</button>
+        <button type="button" class="btn btn-default" id="hmStopBtn">Stop</button>
+        <button type="button" class="btn btn-default" id="hmRestartBtn">Restart</button>
+        <button type="button" class="btn btn-default" id="hmRefreshBtn">Refresh</button>
+      </div>
+      <div class="hm-links">
+        <a class="btn btn-default" id="hmOpenUi" href="#" target="_blank" rel="noopener">Open Web UI</a>
+      </div>
+      <div class="hm-note" id="hmServiceMessage">Loading bridge status…</div>
+    </section>
+
+    <section class="hm-card">
+      <h2>Wrapper Settings</h2>
+      <form id="hmSettingsForm">
+        <div class="hm-form-grid">
+          <label>
+            Web UI Port
+            <input type="number" min="1" max="65535" name="port" id="hmPort" value="8654">
+          </label>
+          <label>
+            Bind Host
+            <input type="text" name="bind_host" id="hmBindHost" value="0.0.0.0">
+          </label>
+          <label class="hm-check">
+            <input type="checkbox" name="autostart" id="hmAutostart">
+            Start automatically when the array starts
+          </label>
+        </div>
+        <div class="hm-actions">
+          <button type="submit" class="btn btn-primary">Save Wrapper Settings</button>
+          <button type="button" class="btn btn-default" id="hmEnableBtn">Enable Plugin</button>
+          <button type="button" class="btn btn-default" id="hmDisableBtn">Disable Plugin</button>
+        </div>
+      </form>
+      <div class="hm-kv" style="margin-top:16px;">
+        <div>Plugin Version</div><div id="hmPluginVersion">--</div>
+        <div>Config</div><div id="hmConfigPath">--</div>
+        <div>Bridge Config</div><div id="hmBridgeConfigPath">--</div>
+        <div>Log File</div><div id="hmLogPath">--</div>
+      </div>
+      <div class="hm-note">This page manages the Unraid service wrapper. Serial, telemetry, Docker, VM, and optional Unraid API settings still live in the main ESP Host Bridge Web UI.</div>
+    </section>
+  </div>
+
+  <div class="hm-grid">
+    <section class="hm-card">
+      <h2>Recent Log Tail</h2>
+      <div class="hm-actions" style="margin-top:0; margin-bottom:12px;">
+        <button type="button" class="btn btn-default" id="hmLogRefreshBtn">Refresh Log</button>
+      </div>
+      <pre id="hmLogBox" class="hm-log-box">Loading log…</pre>
+    </section>
+  </div>
+</div>
+<script>
+(function () {
+  var serviceEndpoint = '/plugins/esp-host-bridge/php/service.php';
+  var csrfToken = <?=json_encode($csrfToken)?>;
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function setText(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  function setHtml(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = value;
+  }
+
+  function setVisible(id, visible) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = visible ? '' : 'none';
+  }
+
+  function badge(text, kind) {
+    return '<span class="hm-badge ' + kind + '">' + escapeHtml(text) + '</span>';
+  }
+
+  function pillClass(kind) {
+    if (kind === 'ok' || kind === 'warn' || kind === 'danger') return 'hm-pill ' + kind;
+    return 'hm-pill neutral';
+  }
+
+  function setPill(id, text, kind) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.className = pillClass(kind);
+    el.textContent = text;
+  }
+
+  function flash(message, kind) {
+    if (!message) {
+      setHtml('hmFlash', '');
+      return;
+    }
+    setHtml('hmFlash', badge(message, kind || 'neutral'));
+  }
+
+  function bridgeUrl(port) {
+    return 'http://' + window.location.hostname + ':' + String(port || 8654) + '/';
+  }
+
+  function requestJson(data, method) {
+    if (!window.jQuery || !window.jQuery.ajax) {
+      return Promise.reject(new Error('jQuery is not available in this Unraid page context'));
+    }
+    return window.jQuery.ajax({
+      url: serviceEndpoint,
+      type: method || 'POST',
+      data: data,
+      dataType: 'json'
+    }).then(function (response) {
+      if (!response || response.ok === false) {
+        throw new Error((response && response.message) || 'Request failed');
+      }
+      return response;
+    }, function (xhr) {
+      var payload = xhr && xhr.responseJSON ? xhr.responseJSON : null;
+      var message = (payload && payload.message) || (xhr && xhr.statusText) || 'Request failed';
+      throw new Error(message);
+    });
+  }
+
+  function postAction(action, extra) {
+    var data = window.jQuery.extend({}, extra || {}, { action: action, csrf_token: csrfToken });
+    return requestJson(data, 'POST');
+  }
+
+  function formatTs(ts) {
+    if (!ts) return '--';
+    var d = new Date(Number(ts) * 1000);
+    if (Number.isNaN(d.getTime())) return '--';
+    return d.toLocaleString();
+  }
+
+  function ageText(seconds) {
+    if (seconds == null || !isFinite(Number(seconds))) return '--';
+    var s = Math.max(0, Math.round(Number(seconds)));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    if (s < 86400) return Math.floor(s / 3600) + 'h';
+    return Math.floor(s / 86400) + 'd';
+  }
+
+  function humanBytes(value) {
+    var n = Number(value);
+    if (!isFinite(n) || n <= 0) return '--';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    var idx = 0;
+    while (n >= 1024 && idx < units.length - 1) {
+      n /= 1024;
+      idx += 1;
+    }
+    return n.toFixed(idx === 0 ? 0 : 1) + ' ' + units[idx];
+  }
+
+  function updateStatus(data) {
+    var service = data.service || {};
+    var plugin = data.plugin || {};
+    var bridge = data.bridge || null;
+    var comm = bridge && bridge.comm_status ? bridge.comm_status : {};
+    var esp = bridge && bridge.esp_status ? bridge.esp_status : {};
+    var unraid = bridge && bridge.unraid_status ? bridge.unraid_status : {};
+    var arrayInfo = unraid && typeof unraid.array === 'object' ? unraid.array : {};
+    var arrayCapacity = arrayInfo && typeof arrayInfo.capacity === 'object' ? arrayInfo.capacity : {};
+    var diskCap = arrayCapacity && typeof arrayCapacity.disks === 'object' ? arrayCapacity.disks : {};
+    var bridgeRunning = !!(bridge && bridge.running);
+    var bridgeReachable = !!bridge;
+    var telemetryAge = bridge && bridge.last_metrics_age_s != null ? Number(bridge.last_metrics_age_s) : null;
+    var wifiConnected = String(esp.wifi_state || '').toLowerCase() === 'connected';
+    var telemetryKind = telemetryAge == null ? 'warn' : (telemetryAge <= 5 ? 'ok' : 'warn');
+    var serialKind = comm.serial_connected ? 'ok' : 'warn';
+    var displayKind = esp.display_sleeping ? 'warn' : 'ok';
+    var wifiKind = !esp.wifi_state ? 'warn' : (wifiConnected ? 'ok' : 'warn');
+    var unraidKind = unraid.api_ok === true ? 'ok' : (unraid.api_ok === false ? 'warn' : 'neutral');
+    var arrayState = arrayInfo && arrayInfo.state ? String(arrayInfo.state) : '--';
+    var arrayUsage = '--';
+    if (diskCap && diskCap.total != null && diskCap.used != null) {
+      arrayUsage = humanBytes(diskCap.used) + ' / ' + humanBytes(diskCap.total);
+    }
+
+    setHtml('hmPluginState', badge(plugin.enabled ? 'Enabled' : 'Disabled', plugin.enabled ? 'ok' : 'warn'));
+    setHtml('hmServiceState', badge(service.running ? 'Running' : 'Stopped', service.running ? 'ok' : 'warn'));
+    setHtml('hmBridgeState', badge(bridgeReachable ? 'Reachable' : 'Unavailable', bridgeReachable ? 'ok' : 'warn'));
+    setText('hmBridgeVersion', bridge && bridge.bridge_version ? bridge.bridge_version : '--');
+    setText('hmPid', bridgeRunning && bridge.pid ? String(bridge.pid) : '--');
+    setText('hmStarted', bridgeRunning ? formatTs(bridge.started_at) : '--');
+    setText('hmPluginVersion', plugin.version || '--');
+    setText('hmConfigPath', data.paths ? data.paths.plugin_cfg : '--');
+    setText('hmBridgeConfigPath', data.paths ? data.paths.webui_cfg : '--');
+    setText('hmLogPath', data.paths ? data.paths.log_file : '--');
+    setText('hmServiceMessage', service.message || 'Use Open Web UI for detailed bridge configuration.');
+
+    setPill('hmTelemetryHealth', 'Telemetry: ' + (telemetryAge == null ? 'Waiting' : 'Live (' + ageText(telemetryAge) + ')'), telemetryKind);
+    setPill('hmSerialHealth', 'Serial: ' + (comm.serial_connected ? 'Connected' : 'Disconnected'), serialKind);
+    setPill('hmHostStatus', 'Host: ' + (bridge && bridge.host_name ? bridge.host_name : '--'), bridge && bridge.host_name ? 'ok' : 'neutral');
+    setPill('hmIfaceStatus', 'Active Interface: ' + (bridge && bridge.active_iface ? bridge.active_iface : '--'), bridge && bridge.active_iface ? 'ok' : 'neutral');
+    setPill('hmDisplayStatus', 'Display: ' + (esp.display_sleeping ? 'Sleeping' : (bridgeReachable ? 'Awake' : '--')), displayKind);
+    setPill('hmEspBoots', 'ESP Boots: ' + (esp.boot_count != null ? String(esp.boot_count) : '--'), esp.boot_count ? 'ok' : 'neutral');
+    setPill('hmEspReset', 'Last ESP Reset: ' + (esp.last_boot_reason || '--'), esp.last_boot_reason ? 'ok' : 'neutral');
+    setPill('hmEspWifi', 'ESP Wi-Fi: ' + (esp.wifi_state || '--'), wifiKind);
+    setPill('hmEspWifiDetail', 'ESP Wi-Fi Detail: ' + ([esp.wifi_ssid || null, esp.wifi_ip || null, esp.wifi_rssi_dbm != null ? String(esp.wifi_rssi_dbm) + ' dBm' : null].filter(Boolean).join(' • ') || '--'), wifiKind);
+    setPill('hmReconnects', 'Reconnects: ' + (comm.serial_disconnect_count != null ? String(comm.serial_disconnect_count) : '--'), (comm.serial_disconnect_count || 0) > 0 ? 'warn' : 'ok');
+    setPill('hmLastComm', 'Comm: ' + (comm.last_comm_event_age_s != null ? ageText(comm.last_comm_event_age_s) + ' ago' : '--'), comm.last_comm_event_age_s != null ? 'ok' : 'neutral');
+    setPill('hmUnraidApi', 'Unraid API: ' + (unraid.api_ok === true ? 'Connected' : (unraid.api_ok === false ? 'Unavailable' : 'Disabled')), unraidKind);
+    setPill('hmArrayState', 'Array: ' + arrayState, arrayState !== '--' ? 'ok' : 'neutral');
+    setPill('hmArrayCapacity', 'Array Usage: ' + arrayUsage, arrayUsage !== '--' ? 'ok' : 'neutral');
+    setPill('hmDockerSource', 'Docker Source: ' + (unraid.api_ok === true ? 'Unraid API' : 'Docker Socket'), unraid.api_ok === true ? 'ok' : 'neutral');
+
+    setVisible('hmStartBtn', !service.running);
+    setVisible('hmStopBtn', service.running);
+    setVisible('hmRestartBtn', service.running);
+    document.getElementById('hmStartBtn').disabled = !!service.running || !plugin.enabled;
+    document.getElementById('hmPort').value = plugin.HM_PORT || '8654';
+    document.getElementById('hmBindHost').value = plugin.HM_BIND_HOST || '0.0.0.0';
+    document.getElementById('hmAutostart').checked = String(plugin.HM_AUTOSTART || 'yes').toLowerCase() === 'yes';
+    updateLink(data.webui_url || bridgeUrl(plugin.HM_PORT || '8654'));
+  }
+
+  function updateLink(url) {
+    var openLink = document.getElementById('hmOpenUi');
+    if (openLink) openLink.href = url;
+  }
+
+  function refreshStatus() {
+    return requestJson({ action: 'status' }, 'GET')
+      .then(function (data) {
+        updateStatus(data);
+      })
+      .catch(function (err) {
+        flash(err.message || err, 'danger');
+      });
+  }
+
+  function refreshLog() {
+    return requestJson({ action: 'tail_log', lines: 160 }, 'GET')
+      .then(function (data) {
+        setText('hmLogBox', data.log || 'Log file is empty.');
+      })
+      .catch(function (err) {
+        setText('hmLogBox', 'Failed to load log: ' + (err.message || err));
+      });
+  }
+
+  function bindAction(id, action) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', function () {
+      postAction(action).then(function (data) {
+        flash(data.message || (action + ' completed'), 'ok');
+        return Promise.all([refreshStatus(), refreshLog()]);
+      }).catch(function (err) {
+        flash(err.message || err, 'danger');
+      });
+    });
+  }
+
+  bindAction('hmStartBtn', 'start');
+  bindAction('hmStopBtn', 'stop');
+  bindAction('hmRestartBtn', 'restart');
+  bindAction('hmEnableBtn', 'enable');
+  bindAction('hmDisableBtn', 'disable');
+
+  var refreshBtn = document.getElementById('hmRefreshBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', function () {
+      Promise.all([refreshStatus(), refreshLog()]);
+    });
+  }
+
+  var logRefreshBtn = document.getElementById('hmLogRefreshBtn');
+  if (logRefreshBtn) {
+    logRefreshBtn.addEventListener('click', function () {
+      refreshLog();
+    });
+  }
+
+  var form = document.getElementById('hmSettingsForm');
+  if (form) {
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      postAction('save', {
+        port: String(document.getElementById('hmPort').value || ''),
+        bind_host: String(document.getElementById('hmBindHost').value || ''),
+        autostart: document.getElementById('hmAutostart').checked ? 'yes' : ''
+      }).then(function (data) {
+        flash(data.message || 'Saved plugin settings', 'ok');
+        return refreshStatus();
+      }).catch(function (err) {
+        flash(err.message || err, 'danger');
+      });
+    });
+  }
+
+  if (!window.jQuery || !window.jQuery.ajax) {
+    flash('Unraid page dependencies did not load. jQuery is required for this page.', 'danger');
+    return;
+  }
+
+  Promise.all([refreshStatus(), refreshLog()]);
+  window.setInterval(refreshStatus, 5000);
+  window.setInterval(refreshLog, 8000);
+})();
+</script>

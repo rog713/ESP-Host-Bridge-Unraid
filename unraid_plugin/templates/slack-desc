@@ -1,0 +1,11 @@
+esp-host-bridge: esp-host-bridge
+esp-host-bridge:
+esp-host-bridge: ESP Host Bridge plugin for Unraid.
+esp-host-bridge: It installs the ESP Host Bridge Web UI and managed USB CDC
+esp-host-bridge: agent, adds a Utilities page, and provides service
+esp-host-bridge: control for the bridge.
+esp-host-bridge:
+esp-host-bridge:
+esp-host-bridge:
+esp-host-bridge:
+esp-host-bridge:
