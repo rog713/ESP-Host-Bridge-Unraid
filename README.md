@@ -55,7 +55,7 @@ The plugin build reads its version from `pyproject.toml` by default.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.30.2 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.30.3 unraid_plugin/build_unraid_plugin.sh
 ```
 
 ## Runtime configuration on Unraid
@@ -75,7 +75,7 @@ The Unraid plugin installs files under:
 
 In Unraid, go to `Plugins` -> `Install Plugin` and paste the release `.plg` URL:
 
-- `https://github.com/rog713/ESP-Host-Bridge-Unraid/releases/download/2026.03.30.2/esp-host-bridge.plg`
+- `https://github.com/rog713/ESP-Host-Bridge-Unraid/releases/download/2026.03.30.3/esp-host-bridge.plg`
 
 After install:
 

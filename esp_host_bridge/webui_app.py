@@ -596,8 +596,8 @@ def create_app(
       <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-cpu-64-bit"></span></span>CPU</div><div class="metric-value" id="mCPU">Waiting...</div><div class="metric-sub">Usage</div></div>
       <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-memory"></span></span>Memory</div><div class="metric-value" id="mMEM">Waiting...</div><div class="metric-sub">Used</div></div>
       <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-thermometer"></span></span>CPU Temp</div><div class="metric-value" id="mTEMP">Waiting...</div><div class="metric-sub">Sensor</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-lan"></span></span>Network</div><div class="metric-value" id="mNET">Waiting...</div><div class="metric-sub">RX / TX</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-harddisk"></span></span>Disk</div><div class="metric-value" id="mDISK">Waiting...</div><div class="metric-sub">Temp / Usage</div></div>
+      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-lan"></span></span>Network</div><div class="metric-value" id="mNET">Waiting...</div><div class="metric-sub">Local probe</div></div>
+      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-harddisk"></span></span>Disk</div><div class="metric-value" id="mDISK">Waiting...</div><div class="metric-sub">API temp / usage</div></div>
       <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-docker"></span></span>Docker</div><div class="metric-value" id="mDOCKER">Waiting...</div><div class="metric-sub">Run / Stop / Unh</div></div>
       <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-monitor-multiple"></span></span>VMs</div><div class="metric-value" id="mVMS">Waiting...</div><div class="metric-sub">Run / Pause / Stop</div></div>
     </div>
@@ -919,17 +919,17 @@ def create_app(
         <div class="mcard" id="mcTEMP"><div class="metric-label">CPU Temperature</div><div class="metric-value" id="mvTEMP">--</div><div class="metric-sub" id="msTEMP"></div><svg id="sparkTEMP"></svg></div>
         <div class="mcard" id="mcUP"><div class="metric-label">Uptime</div><div class="metric-value" id="mvUP">--</div><div class="metric-sub" id="msUP"></div><svg id="sparkUP"></svg></div>
       </div></section>
-      <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-lan"></span></span>Network & Storage</h3><div class="mgroup-grid">
-        <div class="mcard" id="mcNET"><div class="metric-label">Network RX / TX</div><div class="metric-value" id="mvNET">--</div><div class="metric-sub" id="msNET">kbps</div><svg id="sparkNET"></svg></div>
-        <div class="mcard" id="mcDISKIO"><div class="metric-label">Disk Read / Write</div><div class="metric-value" id="mvDISKIO">--</div><div class="metric-sub" id="msDISKIO">kB/s</div><svg id="sparkDISKIO"></svg></div>
-        <div class="mcard" id="mcDISKTEMP"><div class="metric-label">Disk Temperature</div><div class="metric-value" id="mvDISK">--</div><div class="metric-sub" id="msDISK"></div><svg id="sparkDISK"></svg></div>
+      <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-lan"></span></span>Network & Storage (Local Probes)</h3><div class="mgroup-grid">
+        <div class="mcard" id="mcNET"><div class="metric-label">Network RX / TX</div><div class="metric-value" id="mvNET">--</div><div class="metric-sub" id="msNET">Local probe</div><svg id="sparkNET"></svg></div>
+        <div class="mcard" id="mcDISKIO"><div class="metric-label">Disk Read / Write</div><div class="metric-value" id="mvDISKIO">--</div><div class="metric-sub" id="msDISKIO">Local probe</div><svg id="sparkDISKIO"></svg></div>
+        <div class="mcard" id="mcDISKTEMP"><div class="metric-label">Disk Temperature</div><div class="metric-value" id="mvDISK">--</div><div class="metric-sub" id="msDISK">API / local fallback</div><svg id="sparkDISK"></svg></div>
         <div class="mcard" id="mcDISKPCT"><div class="metric-label">Disk Usage</div><div class="metric-value" id="mvDISKPCT">--</div><div class="metric-sub" id="msDISKPCT"></div><svg id="sparkDISKPCT"></svg></div>
       </div></section>
-      <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-fan"></span></span>Cooling & GPU</h3><div class="mgroup-grid">
-        <div class="mcard" id="mcFAN"><div class="metric-label">Fan RPM</div><div class="metric-value" id="mvFAN">--</div><div class="metric-sub" id="msFAN"></div><svg id="sparkFAN"></svg></div>
-        <div class="mcard" id="mcGPUU"><div class="metric-label">GPU Utilization</div><div class="metric-value" id="mvGPUU">--</div><div class="metric-sub" id="msGPUU"></div><svg id="sparkGPUU"></svg></div>
-        <div class="mcard" id="mcGPUT"><div class="metric-label">GPU Temperature</div><div class="metric-value" id="mvGPUT">--</div><div class="metric-sub" id="msGPUT"></div><svg id="sparkGPUT"></svg></div>
-        <div class="mcard" id="mcGPUVM"><div class="metric-label">GPU VRAM</div><div class="metric-value" id="mvGPUVM">--</div><div class="metric-sub" id="msGPUVM"></div><svg id="sparkGPUVM"></svg></div>
+      <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-fan"></span></span>Cooling & GPU (Local Probes)</h3><div class="mgroup-grid">
+        <div class="mcard" id="mcFAN"><div class="metric-label">Fan RPM</div><div class="metric-value" id="mvFAN">--</div><div class="metric-sub" id="msFAN">Local probe</div><svg id="sparkFAN"></svg></div>
+        <div class="mcard" id="mcGPUU"><div class="metric-label">GPU Utilization</div><div class="metric-value" id="mvGPUU">--</div><div class="metric-sub" id="msGPUU">Local probe</div><svg id="sparkGPUU"></svg></div>
+        <div class="mcard" id="mcGPUT"><div class="metric-label">GPU Temperature</div><div class="metric-value" id="mvGPUT">--</div><div class="metric-sub" id="msGPUT">Local probe</div><svg id="sparkGPUT"></svg></div>
+        <div class="mcard" id="mcGPUVM"><div class="metric-label">GPU VRAM</div><div class="metric-value" id="mvGPUVM">--</div><div class="metric-sub" id="msGPUVM">Local probe</div><svg id="sparkGPUVM"></svg></div>
       </div></section>
       <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-apps"></span></span>Workloads</h3><div class="mgroup-grid">
         <div class="mcard"><div class="metric-label">{workload_summary_label}</div><div class="metric-value" id="mvDockerCounts">--</div><div class="metric-sub" id="msDockerCounts">{workload_summary_sub}</div></div>

@@ -1031,7 +1031,9 @@ function updateMonitorDashboard(s) {
   currentWorkloadMode = workloadMode;
   const labels = getWorkloadLabels(workloadMode);
   const m = (s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
+  const unraid = (s.unraid_status && typeof s.unraid_status === 'object') ? s.unraid_status : {};
   const n = (k)=> (Object.prototype.hasOwnProperty.call(m,k) && m[k] !== '' ? Number(m[k]) : null);
+  const text = (k) => (Object.prototype.hasOwnProperty.call(m, k) && m[k] !== '' && m[k] !== null && m[k] !== undefined) ? String(m[k]) : '';
   metricText('sumAgent', s.running ? 'Running' : 'Stopped');
   if (workloadMode === 'homeassistant') metricText('sumDocker', 'A ' + String(m.DOCKRUN ?? '--') + '/' + String(m.DOCKSTOP ?? '--') + ' • I ' + String(m.VMSRUN ?? '--'));
   else metricText('sumDocker', 'D ' + String(m.DOCKRUN ?? '--') + '/' + String(m.DOCKSTOP ?? '--') + ' • VM ' + String(m.VMSRUN ?? '--') + '/' + String(m.VMSPAUSE ?? '--') + '/' + String(m.VMSSTOP ?? '--'));
@@ -1040,18 +1042,35 @@ function updateMonitorDashboard(s) {
   const cpu = n('CPU'), mem = n('MEM'), temp = n('TEMP'), up = n('UP');
   const rx = n('RX'), tx = n('TX'), dtemp = n('DISK'), dpct = n('DISKPCT'), dr = n('DISKR'), dw = n('DISKW');
   const fan = n('FAN'), gu = n('GPUU'), gt = n('GPUT'), gvm = n('GPUVM');
-  setMetricCard('CPU', cpu!==null ? cpu.toFixed(1) + '%' : '--', cpu!==null ? 'Current load' : 'Waiting for telemetry', cpu===null?null:(cpu>=90?'sev-danger':cpu>=70?'sev-warn':'sev-ok'));
-  setMetricCard('MEM', mem!==null ? mem.toFixed(1) + '%' : '--', mem!==null ? 'Used memory' : 'Waiting for telemetry', mem===null?null:(mem>=90?'sev-danger':mem>=75?'sev-warn':'sev-ok'));
-  setMetricCard('TEMP', temp!==null ? temp.toFixed(1) + '°C' : '--', 'CPU sensor', temp===null?null:(temp>=85?'sev-danger':temp>=75?'sev-warn':'sev-ok'));
+  const iface = text('IFACE');
+  const fanAvailable = n('FANAV');
+  const gpuAvailable = n('GPUAV');
+  const gpuEnabled = n('GPUEN');
+  const diskTempAvailable = n('DISKTAV');
+  const unraidApiHealthy = unraid.api_ok === true;
+  setMetricCard('CPU', cpu!==null ? cpu.toFixed(1) + '%' : '--', cpu!==null ? (unraidApiHealthy ? 'Unraid API' : 'Local probe fallback') : 'Waiting for telemetry', cpu===null?null:(cpu>=90?'sev-danger':cpu>=70?'sev-warn':'sev-ok'));
+  setMetricCard('MEM', mem!==null ? mem.toFixed(1) + '%' : '--', mem!==null ? (unraidApiHealthy ? 'Unraid API' : 'Local probe fallback') : 'Waiting for telemetry', mem===null?null:(mem>=90?'sev-danger':mem>=75?'sev-warn':'sev-ok'));
+  setMetricCard('TEMP', temp!==null ? temp.toFixed(1) + '°C' : 'Unavailable', temp!==null ? 'Local sensor' : 'Local sensor not detected', temp===null?null:(temp>=85?'sev-danger':temp>=75?'sev-warn':'sev-ok'));
   setMetricCard('UP', up!==null ? fmtUptimeSec(up) : '--', up!==null ? String(Math.round(up)) + 's total' : 'Waiting for telemetry', 'sev-ok');
-  setMetricCard('NET', (rx!==null||tx!==null) ? String(rx!==null?Math.round(rx):'...') + ' / ' + String(tx!==null?Math.round(tx):'...') : '--', 'RX / TX kbps', ((rx||0)+(tx||0))>50000 ? 'sev-warn' : 'sev-ok');
-  setMetricCard('DISKIO', (dr!==null||dw!==null) ? String(dr!==null?Math.round(dr):'...') + ' / ' + String(dw!==null?Math.round(dw):'...') : '--', 'Read / Write kB/s', ((dr||0)+(dw||0))>50000 ? 'sev-warn' : 'sev-ok');
-  setMetricCard('DISK', dtemp!==null ? dtemp.toFixed(1) + '°C' : '--', dpct!==null ? dpct.toFixed(1) + '% used' : 'Temperature / Usage', dtemp===null?null:(dtemp>=55?'sev-danger':dtemp>=48?'sev-warn':'sev-ok'));
-  setMetricCard('DISKPCT', dpct!==null ? dpct.toFixed(1) + '%' : '--', 'Disk usage', dpct===null?null:(dpct>=92?'sev-danger':dpct>=80?'sev-warn':'sev-ok'));
-  setMetricCard('FAN', fan!==null ? String(Math.round(fan)) : '--', 'RPM', 'sev-ok');
-  setMetricCard('GPUU', gu!==null ? String(Math.round(gu)) + '%' : '--', 'GPU utilization', gu===null?null:(gu>=95?'sev-danger':gu>=80?'sev-warn':'sev-ok'));
-  setMetricCard('GPUT', gt!==null ? gt.toFixed(1) + '°C' : '--', 'GPU temp', gt===null?null:(gt>=85?'sev-danger':gt>=75?'sev-warn':'sev-ok'));
-  setMetricCard('GPUVM', gvm!==null ? String(Math.round(gvm)) + '%' : '--', 'VRAM usage', gvm===null?null:(gvm>=90?'sev-danger':gvm>=75?'sev-warn':'sev-ok'));
+  setMetricCard('NET', (rx!==null||tx!==null) ? String(rx!==null?Math.round(rx):'...') + ' / ' + String(tx!==null?Math.round(tx):'...') : 'Unavailable', iface ? `${iface} • local probe` : 'Local probe', (rx===null&&tx===null)?null:(((rx||0)+(tx||0))>50000 ? 'sev-warn' : 'sev-ok'));
+  setMetricCard('DISKIO', (dr!==null||dw!==null) ? String(dr!==null?Math.round(dr):'...') + ' / ' + String(dw!==null?Math.round(dw):'...') : 'Unavailable', 'Local probe', (dr===null&&dw===null)?null:(((dr||0)+(dw||0))>50000 ? 'sev-warn' : 'sev-ok'));
+  setMetricCard('DISK', dtemp!==null ? dtemp.toFixed(1) + '°C' : 'Unavailable', dtemp!==null ? (unraidApiHealthy ? 'API / local fallback' : 'Local probe / fallback') : (diskTempAvailable === 0 ? 'No disk temp source' : (dpct!==null ? `${dpct.toFixed(1)}% used` : 'API / local fallback')), dtemp===null?null:(dtemp>=55?'sev-danger':dtemp>=48?'sev-warn':'sev-ok'));
+  setMetricCard('DISKPCT', dpct!==null ? dpct.toFixed(1) + '%' : '--', unraidApiHealthy ? 'Unraid API' : 'Local probe', dpct===null?null:(dpct>=92?'sev-danger':dpct>=80?'sev-warn':'sev-ok'));
+  if (fanAvailable === 0) setMetricCard('FAN', 'Unavailable', 'Local sensor not detected', null);
+  else setMetricCard('FAN', fan!==null ? String(Math.round(fan)) : '--', fan!==null ? 'Local probe' : 'Waiting for local probe', fan!==null ? 'sev-ok' : null);
+  if (gpuEnabled === 0) {
+    setMetricCard('GPUU', 'Disabled', 'GPU polling off', null);
+    setMetricCard('GPUT', 'Disabled', 'GPU polling off', null);
+    setMetricCard('GPUVM', 'Disabled', 'GPU polling off', null);
+  } else if (gpuAvailable === 0) {
+    setMetricCard('GPUU', 'Unavailable', 'No GPU detected', null);
+    setMetricCard('GPUT', 'Unavailable', 'No GPU detected', null);
+    setMetricCard('GPUVM', 'Unavailable', 'No GPU detected', null);
+  } else {
+    setMetricCard('GPUU', gu!==null ? String(Math.round(gu)) + '%' : '--', gu!==null ? 'Local probe' : 'Waiting for local probe', gu===null?null:(gu>=95?'sev-danger':gu>=80?'sev-warn':'sev-ok'));
+    setMetricCard('GPUT', gt!==null ? gt.toFixed(1) + '°C' : '--', gt!==null ? 'Local probe' : 'Waiting for local probe', gt===null?null:(gt>=85?'sev-danger':gt>=75?'sev-warn':'sev-ok'));
+    setMetricCard('GPUVM', gvm!==null ? String(Math.round(gvm)) + '%' : '--', gvm!==null ? 'Local probe' : 'Waiting for local probe', gvm===null?null:(gvm>=90?'sev-danger':gvm>=75?'sev-warn':'sev-ok'));
+  }
   setMetricCard('DockerCounts', String(m.DOCKRUN ?? '--') + ' / ' + String(m.DOCKSTOP ?? '--') + ' / ' + String(m.DOCKUNH ?? '--'), labels.dockerSummary, (Number(m.DOCKUNH||0)>0) ? 'sev-warn' : 'sev-ok');
   if (workloadMode === 'homeassistant') setMetricCard('VmCounts', String(m.VMSRUN ?? '--'), labels.vmSummary, 'sev-ok');
   else setMetricCard('VmCounts', String(m.VMSRUN ?? '--') + ' / ' + String(m.VMSPAUSE ?? '--') + ' / ' + String(m.VMSSTOP ?? '--') + ' / ' + String(m.VMSOTHER ?? '--'), labels.vmSummary, 'sev-ok');
