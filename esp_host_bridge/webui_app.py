@@ -18,6 +18,8 @@ from typing import Any, Dict, Optional
 from urllib.parse import quote_plus
 
 from .config import (
+    UNRAID_API_DEFAULT_URL,
+    UNRAID_API_FALLBACK_URLS,
     _clean_bool,
     _clean_str,
     atomic_write_json,
@@ -383,7 +385,7 @@ def create_app(
             unraid_api_body = f"""
       <details class=\"section\" data-section-key=\"unraid_api\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-server-network\"></span></span>Unraid API</summary><div class=\"section-body\">
       <div class=\"row\"><label>Enable Unraid API</label><div><input name=\"unraid_api_enabled\" type=\"checkbox\" {'checked' if cfg.get('unraid_api_enabled', False) else ''}><div class=\"hint\">Uses the Unraid 7.2+ GraphQL API for system info, array state/capacity, Docker inventory, VM inventory, CPU %, memory %, and disk temperature.</div></div></div>
-      <div class=\"row\"><label>GraphQL URL</label><div><input name=\"unraid_api_url\" type=\"text\" value=\"{html.escape(str(cfg.get('unraid_api_url', 'http://127.0.0.1:3001/graphql')))}\"><div class=\"hint\">Default local endpoint on Unraid is <code>http://127.0.0.1:3001/graphql</code>.</div></div></div>
+      <div class=\"row\"><label>GraphQL URL</label><div><input name=\"unraid_api_url\" type=\"text\" value=\"{html.escape(str(cfg.get('unraid_api_url', UNRAID_API_DEFAULT_URL)))}\"><div class=\"hint\">Default local endpoint on Unraid is <code>{html.escape(UNRAID_API_DEFAULT_URL)}</code>. If that fails, the bridge also tries <code>{html.escape(UNRAID_API_FALLBACK_URLS[0])}</code>.</div></div></div>
       <div class=\"row\"><label>API Key</label><div><input name=\"unraid_api_key\" type=\"password\" autocomplete=\"new-password\" value=\"\"><div class=\"hint\">Sent as the <code>x-api-key</code> header. Leave blank to keep the current key. Create a key in Unraid with at least <code>INFO:READ_ANY</code>, <code>ARRAY:READ_ANY</code>, <code>DOCKER:READ_ANY</code>, <code>VMS:READ_ANY</code>, and <code>DISK:READ_ANY</code>. With broader access, the Unraid wrapper page can also show server, services, shares, disks, and plugins details.</div></div></div>
       <div class=\"row\"><label>API Poll Interval (s)</label><div><input name=\"unraid_api_interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('unraid_api_interval', 5.0)))}\"><div class=\"hint\">How often Unraid API system, array, Docker, VM, CPU, memory, and disk temperature data is refreshed. <code>5</code> is a good default.</div></div></div>
       </div></details>

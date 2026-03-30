@@ -325,7 +325,7 @@ def _supervisor_request_json(path: str, timeout: float, method: str = "GET", pay
 
 
 
-from .config import cfg_to_agent_args, load_cfg, validate_cfg
+from .config import UNRAID_API_DEFAULT_URL, cfg_to_agent_args, load_cfg, validate_cfg
 from .metrics import (
     _run_command_capture,
     _virsh_uri_candidates,
@@ -998,7 +998,7 @@ def agent_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--docker-interval", type=float, default=2.0, help="Docker refresh interval in seconds (0 disables polling)")
     ap.add_argument("--disable-docker-polling", action="store_true", help="Disable Docker polling entirely")
     ap.add_argument("--enable-unraid-api", action="store_true", help="Use the Unraid GraphQL API for supported system/array/docker data")
-    ap.add_argument("--unraid-api-url", default="http://127.0.0.1:3001/graphql", help="Unraid GraphQL API endpoint")
+    ap.add_argument("--unraid-api-url", default=UNRAID_API_DEFAULT_URL, help="Unraid GraphQL API endpoint")
     ap.add_argument("--unraid-api-key", default=None, help="Unraid API key sent as x-api-key")
     ap.add_argument("--unraid-api-interval", type=float, default=5.0, help="Unraid API refresh interval in seconds (0 disables polling)")
     ap.add_argument("--virsh-binary", default="virsh", help="virsh executable path")

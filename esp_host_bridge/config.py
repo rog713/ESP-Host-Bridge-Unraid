@@ -13,6 +13,9 @@ def default_webui_config_path() -> Path:
         return Path(env)
     return Path(__file__).resolve().with_name("config.json")
 
+UNRAID_API_DEFAULT_URL = "http://127.0.0.1/graphql"
+UNRAID_API_FALLBACK_URLS = ("http://127.0.0.1:3001/graphql",)
+
 def webui_default_cfg() -> Dict[str, Any]:
     return {
         "serial_port": "",
@@ -24,7 +27,7 @@ def webui_default_cfg() -> Dict[str, Any]:
         "docker_polling_enabled": True,
         "docker_interval": 2.0,
         "unraid_api_enabled": False,
-        "unraid_api_url": "http://127.0.0.1:3001/graphql",
+        "unraid_api_url": UNRAID_API_DEFAULT_URL,
         "unraid_api_key": "",
         "unraid_api_interval": 5.0,
         "virsh_binary": "virsh",

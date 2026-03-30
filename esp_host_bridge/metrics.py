@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
 
+from .config import UNRAID_API_DEFAULT_URL, UNRAID_API_FALLBACK_URLS
 from .runtime import (
     HOME_ASSISTANT_SELF_SLUG,
     SUPERVISOR_TOKEN,
@@ -316,20 +317,33 @@ def _unraid_graphql_request(url: str, api_key: str, query: str, timeout: float) 
     key = str(api_key or "").strip()
     if key:
         headers["x-api-key"] = key
-    req = urllib.request.Request(
-        endpoint,
-        data=json.dumps({"query": query}).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=max(1.0, float(timeout))) as resp:  # nosec B310 - caller controls endpoint
-            body = resp.read().decode("utf-8", errors="ignore")
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="ignore") if hasattr(e, "read") else ""
-        raise RuntimeError(f"Unraid API HTTP {e.code}: {detail or e.reason}") from e
-    except Exception as e:
-        raise RuntimeError(f"Unraid API request failed: {e}") from e
+    endpoints: list[str] = []
+    seen: set[str] = set()
+    for candidate in [endpoint, UNRAID_API_DEFAULT_URL, *UNRAID_API_FALLBACK_URLS]:
+        text = str(candidate or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            endpoints.append(text)
+    last_error = "unknown error"
+    for candidate in endpoints:
+        req = urllib.request.Request(
+            candidate,
+            data=json.dumps({"query": query}).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=max(1.0, float(timeout))) as resp:  # nosec B310 - caller controls endpoint
+                body = resp.read().decode("utf-8", errors="ignore")
+            endpoint = candidate
+            break
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="ignore") if hasattr(e, "read") else ""
+            last_error = f"{candidate}: HTTP {e.code}: {detail or e.reason}"
+        except Exception as e:
+            last_error = f"{candidate}: request failed: {e}"
+    else:
+        raise RuntimeError(f"Unraid API request failed after fallback attempts ({last_error})")
 
     try:
         payload = json.loads(body)

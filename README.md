@@ -55,7 +55,7 @@ The plugin build reads its version from `pyproject.toml` by default.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.29.4 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.30.1 unraid_plugin/build_unraid_plugin.sh
 ```
 
 ## Runtime configuration on Unraid
@@ -81,7 +81,11 @@ If you enable the optional Unraid API path in the main Web UI, use a Unraid 7.2+
 - `VMS:READ_ANY`
 - `DISK:READ_ANY`
 
-The default local GraphQL endpoint is:
+The preferred local GraphQL endpoint is:
+
+- `http://127.0.0.1/graphql`
+
+If that fails, the bridge automatically falls back to:
 
 - `http://127.0.0.1:3001/graphql`
 
