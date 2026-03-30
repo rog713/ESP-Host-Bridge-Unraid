@@ -27,6 +27,6 @@ include-package-data = true
 esp_host_bridge = ["host_ui.css", "host_ui.js"]
 
 [project.urls]
-Homepage = "https://github.com/rog713/ESP-Host-Bridge-Unraid-private"
-Repository = "https://github.com/rog713/ESP-Host-Bridge-Unraid-private.git"
-Issues = "https://github.com/rog713/ESP-Host-Bridge-Unraid-private/issues"
+Homepage = "https://github.com/rog713/ESP-Host-Bridge-Unraid"
+Repository = "https://github.com/rog713/ESP-Host-Bridge-Unraid.git"
+Issues = "https://github.com/rog713/ESP-Host-Bridge-Unraid/issues"

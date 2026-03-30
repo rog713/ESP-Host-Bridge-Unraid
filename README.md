@@ -75,7 +75,7 @@ The Unraid plugin installs files under:
 
 In Unraid, go to `Plugins` -> `Install Plugin` and paste the release `.plg` URL:
 
-- `https://github.com/rog713/ESP-Host-Bridge-Unraid-private/releases/download/2026.03.30.2/esp-host-bridge.plg`
+- `https://github.com/rog713/ESP-Host-Bridge-Unraid/releases/download/2026.03.30.2/esp-host-bridge.plg`
 
 After install:
 
