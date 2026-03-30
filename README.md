@@ -55,7 +55,7 @@ The plugin build reads its version from `pyproject.toml` by default.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.30.1 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.30.2 unraid_plugin/build_unraid_plugin.sh
 ```
 
 ## Runtime configuration on Unraid

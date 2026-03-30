@@ -130,7 +130,7 @@ cat > "${PLUGIN_ROOT}/${PLUGIN_ID}.plg" <<PLGEOF
 ### ${VERSION}
 - Package the maintained esp_host_bridge runtime and Web UI.
 - Add richer bridge status, ESP Wi-Fi/display state, and log tail to the Unraid page.
-- Prepare optional Unraid GraphQL API support for system, array, and Docker data.
+- Clean up the Unraid wrapper page by hiding empty optional sections and filtering irrelevant disks.
 </CHANGES>
 
 <FILE Name="/boot/config/plugins/${PLUGIN_ID}/packages/${PACKAGE_FILE}" Run="upgradepkg --install-new --reinstall">
@@ -149,7 +149,7 @@ cat > "${PLG_PATH}" <<EOF2
 ### ${VERSION}
 - Package the maintained esp_host_bridge runtime and Web UI.
 - Add richer bridge status, ESP Wi-Fi/display state, and log tail to the Unraid page.
-- Prepare optional Unraid GraphQL API support for system, array, and Docker data.
+- Clean up the Unraid wrapper page by hiding empty optional sections and filtering irrelevant disks.
 </CHANGES>
 
 <FILE Run="/bin/bash">

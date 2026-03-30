@@ -22,7 +22,7 @@ The build defaults to the version declared in `pyproject.toml`.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.30.1 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.30.2 unraid_plugin/build_unraid_plugin.sh
 ```
 
 ## Runtime layout on Unraid

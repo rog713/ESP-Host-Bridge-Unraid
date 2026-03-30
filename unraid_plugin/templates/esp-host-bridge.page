@@ -59,6 +59,7 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
 .hm-detail-box { border:1px solid var(--ehb-border); border-radius:12px; padding:12px 14px; background:var(--ehb-panel-strong); }
 .hm-detail-box h3 { margin:0 0 8px; font-size:14px; color:var(--ehb-text); }
 .hm-detail-lines { white-space:pre-wrap; color:var(--ehb-muted); font-size:12px; line-height:1.45; min-height:72px; }
+.hm-source-note { margin-top:12px; color:var(--ehb-muted); line-height:1.45; font-size:12px; }
 @media (max-width: 1100px) {
   .hm-hero { grid-template-columns: 1fr; }
 }
@@ -148,23 +149,24 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
   </div>
 
   <div class="hm-grid">
-    <section class="hm-card">
+    <section class="hm-card" id="hmApiDetailsSection">
       <h2>Unraid API Details</h2>
       <div class="hm-summary-grid">
-        <div class="hm-summary-card"><div class="hm-summary-k">Server</div><div class="hm-summary-v hm-summary-v-sm" id="hmServerSummary">--</div></div>
-        <div class="hm-summary-card"><div class="hm-summary-k">Services</div><div class="hm-summary-v hm-summary-v-sm" id="hmServicesSummary">--</div></div>
-        <div class="hm-summary-card"><div class="hm-summary-k">Shares</div><div class="hm-summary-v hm-summary-v-sm" id="hmSharesSummary">--</div></div>
-        <div class="hm-summary-card"><div class="hm-summary-k">Disks</div><div class="hm-summary-v hm-summary-v-sm" id="hmDisksSummary">--</div></div>
-        <div class="hm-summary-card"><div class="hm-summary-k">Plugins</div><div class="hm-summary-v hm-summary-v-sm" id="hmPluginsSummary">--</div></div>
+        <div class="hm-summary-card" id="hmServerSummaryCard"><div class="hm-summary-k">Server</div><div class="hm-summary-v hm-summary-v-sm" id="hmServerSummary">--</div></div>
+        <div class="hm-summary-card" id="hmServicesSummaryCard"><div class="hm-summary-k">Services</div><div class="hm-summary-v hm-summary-v-sm" id="hmServicesSummary">--</div></div>
+        <div class="hm-summary-card" id="hmSharesSummaryCard"><div class="hm-summary-k">Shares</div><div class="hm-summary-v hm-summary-v-sm" id="hmSharesSummary">--</div></div>
+        <div class="hm-summary-card" id="hmDisksSummaryCard"><div class="hm-summary-k">Disks</div><div class="hm-summary-v hm-summary-v-sm" id="hmDisksSummary">--</div></div>
+        <div class="hm-summary-card" id="hmPluginsSummaryCard"><div class="hm-summary-k">Plugins</div><div class="hm-summary-v hm-summary-v-sm" id="hmPluginsSummary">--</div></div>
       </div>
       <div class="hm-detail-grid">
-        <div class="hm-detail-box"><h3>Server</h3><div class="hm-detail-lines" id="hmServerDetail">--</div></div>
-        <div class="hm-detail-box"><h3>Services</h3><div class="hm-detail-lines" id="hmServicesDetail">--</div></div>
-        <div class="hm-detail-box"><h3>Shares</h3><div class="hm-detail-lines" id="hmSharesDetail">--</div></div>
-        <div class="hm-detail-box"><h3>Disks</h3><div class="hm-detail-lines" id="hmDisksDetail">--</div></div>
-        <div class="hm-detail-box"><h3>Plugins</h3><div class="hm-detail-lines" id="hmPluginsDetail">--</div></div>
+        <div class="hm-detail-box" id="hmServerDetailBox"><h3>Server</h3><div class="hm-detail-lines" id="hmServerDetail">--</div></div>
+        <div class="hm-detail-box" id="hmServicesDetailBox"><h3>Services</h3><div class="hm-detail-lines" id="hmServicesDetail">--</div></div>
+        <div class="hm-detail-box" id="hmSharesDetailBox"><h3>Shares</h3><div class="hm-detail-lines" id="hmSharesDetail">--</div></div>
+        <div class="hm-detail-box" id="hmDisksDetailBox"><h3>Disks</h3><div class="hm-detail-lines" id="hmDisksDetail">--</div></div>
+        <div class="hm-detail-box" id="hmPluginsDetailBox"><h3>Plugins</h3><div class="hm-detail-lines" id="hmPluginsDetail">--</div></div>
       </div>
       <div class="hm-note" id="hmApiExtraNote">Optional Unraid API details will appear here when the configured key has access.</div>
+      <div class="hm-source-note">Core telemetry sources: Docker, VMs, CPU, memory, array state, and array usage come from the Unraid API when enabled. Network throughput, disk I/O, fan, and GPU metrics still come from local host probes.</div>
     </section>
 
     <section class="hm-card">
@@ -291,6 +293,32 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
     return lines.filter(Boolean).join('\n');
   }
 
+  function truthyText(value) {
+    return value != null && String(value).trim() !== '';
+  }
+
+  function compareNames(a, b) {
+    return String((a && a.name) || '').localeCompare(String((b && b.name) || ''));
+  }
+
+  function countLabel(count, noun) {
+    return String(count) + ' ' + noun + (Number(count) === 1 ? '' : 's');
+  }
+
+  function isRelevantDisk(row) {
+    if (!row || typeof row !== 'object') return false;
+    var device = String(row.device || '').toLowerCase();
+    var iface = String(row.interfaceType || '').toUpperCase();
+    var type = String(row.type || '').toLowerCase();
+    var smart = String(row.smartStatus || '').toUpperCase();
+    var tempKnown = row.temperature != null && isFinite(Number(row.temperature));
+    var meaningfulSmart = smart && smart !== 'UNKNOWN' && smart !== 'UNAVAILABLE' && smart !== 'N/A';
+    if (/^\/dev\/(loop|ram|md|dm-|zram|sr)/.test(device)) return false;
+    if (type === 'loop' || type === 'ram' || type === 'rom') return false;
+    if (iface === 'USB' && !tempKnown && !meaningfulSmart) return false;
+    return truthyText(row.name || row.device);
+  }
+
   function renderShareLine(row) {
     if (!row || typeof row !== 'object') return null;
     var name = row.name || 'share';
@@ -328,6 +356,43 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
     var shares = Array.isArray(unraid.shares) ? unraid.shares : [];
     var plugins = Array.isArray(unraid.plugins) ? unraid.plugins : [];
     var disks = Array.isArray(unraid.disks) ? unraid.disks : [];
+    var filteredServices = services
+      .filter(function (row) { return row && truthyText(row.name); })
+      .slice()
+      .sort(function (a, b) {
+        if (!!a.online !== !!b.online) return a.online ? 1 : -1;
+        return compareNames(a, b);
+      })
+      .slice(0, 5);
+    var filteredShares = shares
+      .filter(function (row) { return row && truthyText(row.name); })
+      .slice()
+      .sort(function (a, b) { return Number((b && b.used) || 0) - Number((a && a.used) || 0); })
+      .slice(0, 5);
+    var filteredPlugins = plugins
+      .filter(function (row) { return row && truthyText(row.name); })
+      .slice()
+      .sort(function (a, b) {
+        var scoreA = (a && a.hasApiModule ? 2 : 0) + (a && a.hasCliModule ? 1 : 0);
+        var scoreB = (b && b.hasApiModule ? 2 : 0) + (b && b.hasCliModule ? 1 : 0);
+        if (scoreA !== scoreB) return scoreB - scoreA;
+        return compareNames(a, b);
+      })
+      .slice(0, 5);
+    var filteredDisks = disks
+      .filter(isRelevantDisk)
+      .slice()
+      .sort(function (a, b) {
+        var ta = Number(a && a.temperature);
+        var tb = Number(b && b.temperature);
+        var va = isFinite(ta);
+        var vb = isFinite(tb);
+        if (va !== vb) return vb ? 1 : -1;
+        if (va && vb && ta !== tb) return tb - ta;
+        return compareNames(a, b);
+      })
+      .slice(0, 5);
+    var serverPresent = truthyText(server.name) || truthyText(server.status) || truthyText(server.lanip) || truthyText(server.localurl) || truthyText(server.remoteurl);
     var bridgeRunning = !!(bridge && bridge.running);
     var bridgeReachable = !!bridge;
     var telemetryAge = bridge && bridge.last_metrics_age_s != null ? Number(bridge.last_metrics_age_s) : null;
@@ -340,10 +405,11 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
     var arrayState = arrayInfo && arrayInfo.state ? String(arrayInfo.state) : '--';
     var arrayUsage = '--';
     var onlineServices = services.filter(function (row) { return row && row.online; }).length;
-    var diskSmartIssues = disks.filter(function (row) {
+    var diskSmartIssues = filteredDisks.filter(function (row) {
       var status = String(row && row.smartStatus || '').toUpperCase();
       return status && status !== 'PASSED' && status !== 'OK';
     }).length;
+    var showApiExtras = !!(serverPresent || filteredServices.length || filteredShares.length || filteredDisks.length || filteredPlugins.length || unraid.api_extra_ok === false);
     if (diskCap && diskCap.total != null && diskCap.used != null) {
       arrayUsage = humanBytes(diskCap.used) + ' / ' + humanBytes(diskCap.total);
     }
@@ -372,15 +438,27 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
     setPill('hmReconnects', 'Reconnects: ' + (comm.serial_disconnect_count != null ? String(comm.serial_disconnect_count) : '--'), (comm.serial_disconnect_count || 0) > 0 ? 'warn' : 'ok');
     setPill('hmLastComm', 'Comm: ' + (comm.last_comm_event_age_s != null ? ageText(comm.last_comm_event_age_s) + ' ago' : '--'), comm.last_comm_event_age_s != null ? 'ok' : 'neutral');
     setPill('hmUnraidApi', 'Unraid API: ' + (unraid.api_ok === true ? 'Connected' : (unraid.api_ok === false ? 'Unavailable' : 'Disabled')), unraidKind);
-    setPill('hmArrayState', 'Array: ' + arrayState, arrayState !== '--' ? 'ok' : 'neutral');
-    setPill('hmArrayCapacity', 'Array Usage: ' + arrayUsage, arrayUsage !== '--' ? 'ok' : 'neutral');
+    setPill('hmArrayState', 'Array (API): ' + arrayState, arrayState !== '--' ? 'ok' : 'neutral');
+    setPill('hmArrayCapacity', 'Array Usage (API): ' + arrayUsage, arrayUsage !== '--' ? 'ok' : 'neutral');
     setPill('hmDockerSource', 'Docker Source: ' + (unraid.api_ok === true ? 'Unraid API' : 'Docker Socket'), unraid.api_ok === true ? 'ok' : 'neutral');
 
-    setText('hmServerSummary', server.name ? String(server.name) : '--');
-    setText('hmServicesSummary', services.length ? (String(onlineServices) + '/' + String(services.length) + ' online') : '--');
-    setText('hmSharesSummary', shares.length ? (String(shares.length) + ' shares') : '--');
-    setText('hmDisksSummary', disks.length ? (String(disks.length) + ' disks') : '--');
-    setText('hmPluginsSummary', plugins.length ? (String(plugins.length) + ' plugins') : '--');
+    setVisible('hmApiDetailsSection', showApiExtras);
+    setVisible('hmServerSummaryCard', serverPresent);
+    setVisible('hmServerDetailBox', serverPresent);
+    setVisible('hmServicesSummaryCard', filteredServices.length > 0);
+    setVisible('hmServicesDetailBox', filteredServices.length > 0);
+    setVisible('hmSharesSummaryCard', filteredShares.length > 0);
+    setVisible('hmSharesDetailBox', filteredShares.length > 0);
+    setVisible('hmDisksSummaryCard', filteredDisks.length > 0);
+    setVisible('hmDisksDetailBox', filteredDisks.length > 0);
+    setVisible('hmPluginsSummaryCard', filteredPlugins.length > 0);
+    setVisible('hmPluginsDetailBox', filteredPlugins.length > 0);
+
+    setText('hmServerSummary', serverPresent ? String(server.name || server.status || 'available') : '--');
+    setText('hmServicesSummary', filteredServices.length ? (String(onlineServices) + '/' + String(services.length) + ' online') : '--');
+    setText('hmSharesSummary', filteredShares.length ? (filteredShares.length !== shares.length ? countLabel(filteredShares.length, 'shown') : countLabel(filteredShares.length, 'share')) : '--');
+    setText('hmDisksSummary', filteredDisks.length ? (filteredDisks.length !== disks.length ? countLabel(filteredDisks.length, 'shown') : countLabel(filteredDisks.length, 'disk')) : '--');
+    setText('hmPluginsSummary', filteredPlugins.length ? (filteredPlugins.length !== plugins.length ? countLabel(filteredPlugins.length, 'shown') : countLabel(filteredPlugins.length, 'plugin')) : '--');
 
     setText(
       'hmServerDetail',
@@ -394,7 +472,7 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
     setText(
       'hmServicesDetail',
       joinLines(
-        services.slice(0, 6).map(function (row) {
+        filteredServices.map(function (row) {
           if (!row || typeof row !== 'object') return null;
           return String(row.name || 'service') + ' • ' + (row.online ? 'online' : 'offline') + (row.version ? ' • ' + String(row.version) : '');
         })
@@ -403,27 +481,19 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
     setText(
       'hmSharesDetail',
       joinLines(
-        shares
-          .slice()
-          .sort(function (a, b) { return Number(b && b.used || 0) - Number(a && a.used || 0); })
-          .slice(0, 6)
-          .map(renderShareLine)
+        filteredShares.map(renderShareLine)
       )
     );
     setText(
       'hmDisksDetail',
       joinLines(
-        disks
-          .slice()
-          .sort(function (a, b) { return Number(b && b.temperature || -999) - Number(a && a.temperature || -999); })
-          .slice(0, 6)
-          .map(renderDiskLine)
+        filteredDisks.map(renderDiskLine)
       )
     );
     setText(
       'hmPluginsDetail',
       joinLines(
-        plugins.slice(0, 6).map(function (row) {
+        filteredPlugins.map(function (row) {
           if (!row || typeof row !== 'object') return null;
           var flags = [];
           if (row.hasApiModule) flags.push('api');
@@ -436,7 +506,7 @@ $csrfToken = isset($var['csrf_token']) ? (string)$var['csrf_token'] : '';
       'hmApiExtraNote',
       unraid.api_extra_ok === false
         ? ('Optional API details unavailable: ' + (unraid.api_extra_error || 'permission or query failure'))
-        : (disks.length || shares.length || services.length || plugins.length || server.name
+        : (showApiExtras
           ? ('Services: ' + String(onlineServices) + '/' + String(services.length) + ' online • Disk SMART issues: ' + String(diskSmartIssues))
           : 'Optional Unraid API details will appear here when the configured key has access.')
     );
