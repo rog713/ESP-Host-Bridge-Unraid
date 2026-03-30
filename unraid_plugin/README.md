@@ -38,6 +38,14 @@ VERSION=2026.03.30.2 unraid_plugin/build_unraid_plugin.sh
 - Service control:
   - `/etc/rc.d/rc.esp_host_bridge`
 
+## Install on Unraid
+
+In Unraid, go to `Plugins` -> `Install Plugin` and paste:
+
+- `https://github.com/rog713/ESP-Host-Bridge-Unraid-private/releases/download/2026.03.30.2/esp-host-bridge.plg`
+
+Then open `Tools` -> `ESP Host Bridge` and use `Open Web UI` to finish the bridge configuration.
+
 ## Plugin page
 
 The Unraid page provides:
@@ -57,3 +65,4 @@ The Unraid page provides:
 - Optional Unraid GraphQL API support is configured in the main Web UI, not on the wrapper page.
 - The preferred local Unraid GraphQL endpoint is `http://127.0.0.1/graphql`, with automatic fallback to `http://127.0.0.1:3001/graphql`.
 - Docker socket and `virsh` remain available for control commands and fallback paths when the Unraid API is disabled or unavailable.
+- Disk temperature may still fall back to the local probe path if the Unraid API returns `null` for the selected disk.

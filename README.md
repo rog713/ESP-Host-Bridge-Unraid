@@ -71,6 +71,19 @@ The Unraid plugin installs files under:
 - service control:
   - `/etc/rc.d/rc.esp_host_bridge`
 
+## Install on Unraid
+
+In Unraid, go to `Plugins` -> `Install Plugin` and paste the release `.plg` URL:
+
+- `https://github.com/rog713/ESP-Host-Bridge-Unraid-private/releases/download/2026.03.30.2/esp-host-bridge.plg`
+
+After install:
+
+1. open the `ESP Host Bridge` page under `Tools`
+2. start the service if it is not already running
+3. open the main Web UI from the wrapper page
+4. configure serial and, if you want the Unraid API path, add your GraphQL API key there
+
 ## Unraid API
 
 If you enable the optional Unraid API path in the main Web UI, use a Unraid 7.2+ GraphQL API key with at least:
@@ -90,6 +103,14 @@ If that fails, the bridge automatically falls back to:
 - `http://127.0.0.1:3001/graphql`
 
 With broader API access, the Unraid plugin page can also surface optional server, services, shares, disks, and plugins details.
+
+## Troubleshooting
+
+- If the Unraid API shows unavailable, start with:
+  - `http://127.0.0.1/graphql`
+- If you do not see optional details on the wrapper page, the API key is usually missing one or more read permissions.
+- Disk temperature can still come from the local probe path if the Unraid API returns `null` for the selected disk.
+- Network throughput, disk I/O, fan, and GPU metrics still come from local host probes, not the Unraid API.
 
 ## Notes
 
