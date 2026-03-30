@@ -243,6 +243,11 @@ def get_unraid_array_usage_pct(bundle: dict[str, Any]) -> Optional[float]:
     return max(0.0, min(100.0, (float(used) * 100.0) / float(total)))
 
 def get_unraid_disk_temp_c(bundle: dict[str, Any], disk_device: Optional[str] = None) -> Optional[float]:
+    disk_rows = bundle.get("disks")
+    if isinstance(disk_rows, list):
+        preferred = _select_unraid_disk_temp(disk_rows, disk_device=disk_device)
+        if preferred is not None:
+            return preferred
     array = bundle.get("array")
     if not isinstance(array, dict):
         return None
@@ -273,6 +278,32 @@ def get_unraid_disk_temp_c(bundle: dict[str, Any], disk_device: Optional[str] = 
     if temps:
         return max(temps)
     return None
+
+def get_unraid_disk_inventory(url: str, api_key: str, timeout: float) -> list[dict[str, Any]]:
+    data = _unraid_graphql_request(
+        url,
+        api_key,
+        """
+        query {
+          disks {
+            name
+            device
+            type
+            size
+            smartStatus
+            temperature
+            isSpinning
+            vendor
+            interfaceType
+            firmwareRevision
+            serialNum
+          }
+        }
+        """,
+        timeout,
+    )
+    rows = data.get("disks")
+    return rows if isinstance(rows, list) else []
 
 def _unraid_graphql_request(url: str, api_key: str, query: str, timeout: float) -> dict[str, Any]:
     endpoint = str(url or "").strip()
@@ -841,15 +872,63 @@ def _extract_temp_from_text(text: str) -> Optional[float]:
 def _normalize_disk_name(v: Optional[str]) -> Optional[str]:
     if not v:
         return None
-    s = str(v).strip()
+    s = str(v).strip().lower()
     if not s:
         return None
     if s.startswith("/dev/"):
         s = s[5:]
-    if s.startswith("nvme") and "p" in s:
-        s = re.sub(r"p\d+$", "", s)
-    s = re.sub(r"\d+$", "", s)
+    m = re.match(r"^(nvme\d+n\d+)p\d+$", s)
+    if m:
+        return m.group(1)
+    m = re.match(r"^(mmcblk\d+)p\d+$", s)
+    if m:
+        return m.group(1)
+    m = re.match(r"^((?:sd|vd|xvd|hd)[a-z]+)\d+$", s)
+    if m:
+        return m.group(1)
     return s
+
+def _select_unraid_disk_temp(rows: list[dict[str, Any]], disk_device: Optional[str] = None) -> Optional[float]:
+    hint_raw = str(disk_device or "").strip().lower()
+    hint_norm = _normalize_disk_name(disk_device)
+    preferred_temps: list[float] = []
+    all_temps: list[float] = []
+
+    def _is_flash_like(row: dict[str, Any]) -> bool:
+        iface = str(row.get("interfaceType") or "").strip().upper()
+        dtype = str(row.get("type") or "").strip().upper()
+        name = str(row.get("name") or "").strip().lower()
+        device = str(row.get("device") or "").strip().lower()
+        return iface == "USB" or "flash" in name or device == "/dev/sda" and dtype == "HD" and iface == "USB"
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        temp = safe_float(row.get("temperature"), None)
+        if temp is None or not (-20.0 <= temp <= 150.0):
+            continue
+        temp = float(temp)
+        all_temps.append(temp)
+        device = str(row.get("device") or "").strip().lower()
+        if hint_raw:
+            if device and (device == hint_raw or device == f"/dev/{hint_raw.removeprefix('/dev/')}"):
+                return temp
+            if hint_norm:
+                for candidate in (
+                    row.get("device"),
+                    row.get("name"),
+                    row.get("serialNum"),
+                ):
+                    if _normalize_disk_name(candidate) == hint_norm:
+                        return temp
+        if not _is_flash_like(row):
+            preferred_temps.append(temp)
+
+    if preferred_temps:
+        return max(preferred_temps)
+    if all_temps:
+        return max(all_temps)
+    return None
 
 def _disk_candidates(device_hint: Optional[str]) -> list[str]:
     out: list[str] = []

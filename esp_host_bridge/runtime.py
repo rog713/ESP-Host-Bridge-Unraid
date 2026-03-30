@@ -345,6 +345,7 @@ from .metrics import (
     get_net_bytes_local,
     get_unraid_array_usage_pct,
     get_unraid_cpu_percent,
+    get_unraid_disk_inventory,
     get_unraid_disk_temp_c,
     get_unraid_mem_percent,
     get_unraid_status_bundle,
@@ -783,6 +784,16 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
             if api_mem_pct is not None:
                 mem_pct = api_mem_pct
             api_disk_temp = get_unraid_disk_temp_c(bundle, args.disk_temp_device or args.disk_device or state.active_disk)
+            if api_disk_temp is None:
+                try:
+                    api_disk_rows = get_unraid_disk_inventory(args.unraid_api_url, args.unraid_api_key, timeout=args.timeout)
+                except Exception:
+                    api_disk_rows = []
+                if api_disk_rows:
+                    api_disk_temp = get_unraid_disk_temp_c(
+                        {"disks": api_disk_rows},
+                        args.disk_temp_device or args.disk_device or state.active_disk,
+                    )
             if api_disk_temp is not None:
                 state.disk_temp_c = float(api_disk_temp)
                 state.disk_temp_available = True
