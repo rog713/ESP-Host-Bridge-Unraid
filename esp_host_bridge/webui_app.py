@@ -29,7 +29,7 @@ from .config import (
     validate_cfg,
     webui_default_cfg,
 )
-from .metrics import detect_hardware_choices
+from .metrics import detect_hardware_choices, get_unraid_optional_overview
 from .runtime import (
     APP_VERSION,
     HOST_NAME,
@@ -241,6 +241,13 @@ def create_app(
     self_script = Path(os.environ.get("PORTABLE_HOST_METRICS_SCRIPT", str(Path(__file__).resolve())))
     package_module = (__package__ or "").split(".", 1)[0] or None
     pub = RunnerManager(self_script=self_script, python_bin=python_bin, package_module=package_module)
+    unraid_optional_cache: Dict[str, Any] = {
+        "sig": "",
+        "ts": 0.0,
+        "payload": {},
+        "ok": None,
+        "error": "",
+    }
     initial_cfg = load_cfg(cfg_path)
     initial_cfg, secret_updated = ensure_webui_session_secret(initial_cfg)
     if secret_updated:
@@ -377,7 +384,7 @@ def create_app(
       <details class=\"section\" data-section-key=\"unraid_api\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-server-network\"></span></span>Unraid API</summary><div class=\"section-body\">
       <div class=\"row\"><label>Enable Unraid API</label><div><input name=\"unraid_api_enabled\" type=\"checkbox\" {'checked' if cfg.get('unraid_api_enabled', False) else ''}><div class=\"hint\">Uses the Unraid 7.2+ GraphQL API for system info, array state/capacity, Docker inventory, VM inventory, CPU %, memory %, and disk temperature.</div></div></div>
       <div class=\"row\"><label>GraphQL URL</label><div><input name=\"unraid_api_url\" type=\"text\" value=\"{html.escape(str(cfg.get('unraid_api_url', 'http://127.0.0.1:3001/graphql')))}\"><div class=\"hint\">Default local endpoint on Unraid is <code>http://127.0.0.1:3001/graphql</code>.</div></div></div>
-      <div class=\"row\"><label>API Key</label><div><input name=\"unraid_api_key\" type=\"password\" autocomplete=\"new-password\" value=\"\"><div class=\"hint\">Sent as the <code>x-api-key</code> header. Leave blank to keep the current key. Create a key in Unraid with at least <code>INFO:READ_ANY</code>, <code>ARRAY:READ_ANY</code>, <code>DOCKER:READ_ANY</code>, <code>VMS:READ_ANY</code>, and <code>DISK:READ_ANY</code>.</div></div></div>
+      <div class=\"row\"><label>API Key</label><div><input name=\"unraid_api_key\" type=\"password\" autocomplete=\"new-password\" value=\"\"><div class=\"hint\">Sent as the <code>x-api-key</code> header. Leave blank to keep the current key. Create a key in Unraid with at least <code>INFO:READ_ANY</code>, <code>ARRAY:READ_ANY</code>, <code>DOCKER:READ_ANY</code>, <code>VMS:READ_ANY</code>, and <code>DISK:READ_ANY</code>. With broader access, the Unraid wrapper page can also show server, services, shares, disks, and plugins details.</div></div></div>
       <div class=\"row\"><label>API Poll Interval (s)</label><div><input name=\"unraid_api_interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('unraid_api_interval', 5.0)))}\"><div class=\"hint\">How often Unraid API system, array, Docker, VM, CPU, memory, and disk temperature data is refreshed. <code>5</code> is a good default.</div></div></div>
       </div></details>
             """
@@ -992,7 +999,54 @@ window.__HOST_METRICS_BOOT__ = {{
 
     @app.get("/api/status")
     def api_status() -> Any:
-        return jsonify(pub.status())
+        st = pub.status()
+        cfg = load_cfg(cfg_path)
+        unraid_enabled = _clean_bool(cfg.get("unraid_api_enabled"), False)
+        unraid_url = _clean_str(cfg.get("unraid_api_url"), "")
+        unraid_key = _clean_str(cfg.get("unraid_api_key"), "")
+        if unraid_enabled and unraid_url and unraid_key:
+            sig = f"{unraid_url}|{unraid_key}"
+            now_ts = time.time()
+            payload: Dict[str, Any] = {}
+            ok: Optional[bool] = None
+            err = ""
+            if (
+                unraid_optional_cache.get("sig") == sig
+                and (now_ts - float(unraid_optional_cache.get("ts") or 0.0)) < 10.0
+            ):
+                payload = dict(unraid_optional_cache.get("payload") or {})
+                ok = unraid_optional_cache.get("ok")
+                err = _clean_str(unraid_optional_cache.get("error"), "")
+            else:
+                try:
+                    payload = get_unraid_optional_overview(
+                        unraid_url,
+                        unraid_key,
+                        max(1.0, float(cfg.get("timeout") or 2.0)),
+                    )
+                    ok = True
+                    err = ""
+                except Exception as e:
+                    payload = {}
+                    ok = False
+                    err = str(e)
+                unraid_optional_cache.update(
+                    {
+                        "sig": sig,
+                        "ts": now_ts,
+                        "payload": payload,
+                        "ok": ok,
+                        "error": err,
+                    }
+                )
+            unraid_status = dict(st.get("unraid_status") or {})
+            unraid_status.update(payload)
+            if ok is not None:
+                unraid_status["api_extra_ok"] = ok
+            if err:
+                unraid_status["api_extra_error"] = err
+            st["unraid_status"] = unraid_status
+        return jsonify(st)
 
     @app.get("/api/config")
     def api_config() -> Any:

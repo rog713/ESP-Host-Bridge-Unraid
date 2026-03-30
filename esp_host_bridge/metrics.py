@@ -399,6 +399,64 @@ def get_unraid_status_bundle(url: str, api_key: str, timeout: float) -> dict[str
         out["vms"] = vm_rows
     return out
 
+def get_unraid_optional_overview(url: str, api_key: str, timeout: float) -> dict[str, Any]:
+    data = _unraid_graphql_request(
+        url,
+        api_key,
+        """
+        query {
+          server {
+            name
+            status
+            lanip
+            localurl
+            remoteurl
+          }
+          services {
+            name
+            online
+            version
+          }
+          shares {
+            name
+            free
+            used
+            size
+            cache
+            comment
+            luksStatus
+          }
+          plugins {
+            name
+            version
+            hasApiModule
+            hasCliModule
+          }
+          disks {
+            name
+            device
+            type
+            size
+            smartStatus
+            temperature
+            isSpinning
+            vendor
+            interfaceType
+            firmwareRevision
+            serialNum
+          }
+        }
+        """,
+        timeout,
+    )
+    return {
+        "server": data.get("server") if isinstance(data.get("server"), dict) else {},
+        "services": data.get("services") if isinstance(data.get("services"), list) else [],
+        "shares": data.get("shares") if isinstance(data.get("shares"), list) else [],
+        "plugins": data.get("plugins") if isinstance(data.get("plugins"), list) else [],
+        "disks": data.get("disks") if isinstance(data.get("disks"), list) else [],
+    }
+
 def vm_summary_counts(vm_data: list[dict[str, Any]]) -> Dict[str, int]:
     counts = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
     for vm in vm_data:
@@ -1203,6 +1261,7 @@ __all__ = [
     "get_unraid_cpu_percent",
     "get_unraid_disk_temp_c",
     "get_unraid_mem_percent",
+    "get_unraid_optional_overview",
     "get_cpu_temp_c",
     "get_disk_bytes_local",
     "get_disk_temp_c",

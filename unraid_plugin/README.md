@@ -22,7 +22,7 @@ The build defaults to the version declared in `pyproject.toml`.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.29.2 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.29.3 unraid_plugin/build_unraid_plugin.sh
 ```
 
 ## Runtime layout on Unraid
@@ -47,6 +47,7 @@ The Unraid page provides:
 - wrapper settings for port, bind host, and autostart
 - live bridge status from `/api/status`
 - bridge version, telemetry freshness, ESP display state, ESP Wi-Fi state, and ESP boot state
+- optional Unraid API server, services, shares, disks, and plugins detail cards when the configured key has access
 - recent log tail
 - link into the main ESP Host Bridge Web UI
 
