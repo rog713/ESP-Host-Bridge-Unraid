@@ -22,8 +22,23 @@ The build defaults to the version declared in `pyproject.toml`.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.31.4 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.31.5 unraid_plugin/build_unraid_plugin.sh
 ```
+
+## Release assets
+
+GitHub release assets are now built from tags in GitHub Actions.
+
+Publish from the repo root with:
+
+```bash
+scripts/publish_github_release.sh
+```
+
+That script validates the tree, builds once locally, pushes `main`, and pushes tag `v<version>`. The release workflow then rebuilds and uploads:
+
+- `dist/esp-host-bridge.plg`
+- `dist/esp-host-bridge-<version>-noarch-1.txz`
 
 ## Runtime layout on Unraid
 

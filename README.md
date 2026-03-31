@@ -59,8 +59,35 @@ The plugin build reads its version from `pyproject.toml` by default.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.31.4 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.31.5 unraid_plugin/build_unraid_plugin.sh
 ```
+
+## Publish a GitHub release
+
+Tagged releases now build the plugin artifacts in GitHub Actions and attach them to the GitHub release. This prevents two different local builds from reusing the same version string.
+
+Publish flow:
+
+1. bump `pyproject.toml`
+2. commit the release changes
+3. run:
+
+```bash
+scripts/publish_github_release.sh
+```
+
+The script:
+
+- refuses to reuse an existing tag or release
+- runs the local test floor
+- rebuilds the plugin once locally
+- pushes `main`
+- creates and pushes tag `v<version>`
+
+GitHub Actions then rebuilds from the tagged source and publishes:
+
+- `esp-host-bridge.plg`
+- `esp-host-bridge-<version>-noarch-1.txz`
 
 ## Keep the plugin in sync
 
@@ -89,7 +116,7 @@ Recommended flow:
 1. sync from the private Host Bridge repo
 2. review the diff and bump the Unraid repo version if needed
 3. run the local test floor
-4. rebuild `unraid_plugin/`
+4. publish a tagged release
 
 Validation commands:
 
