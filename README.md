@@ -9,11 +9,15 @@ It keeps the current `esp_host_bridge` runtime and Web UI together with a dedica
 - `esp_host_bridge/`
   - the maintained runtime package
   - local Web UI and USB CDC agent
+  - refactored integration-registry runtime
   - optional Docker, VM, and Unraid API polling
 - `unraid_plugin/`
   - Unraid plugin page templates
   - service wrapper scripts
   - packaging script for `.plg` and `.txz`
+- `scripts/`
+  - core sync helper for importing the latest Host Bridge runtime
+  - overlay patch refresh helper for preserving Unraid-specific changes
 
 ## Web UI
 
@@ -55,7 +59,45 @@ The plugin build reads its version from `pyproject.toml` by default.
 Override the version if needed:
 
 ```bash
-VERSION=2026.03.30.3 unraid_plugin/build_unraid_plugin.sh
+VERSION=2026.03.31.4 unraid_plugin/build_unraid_plugin.sh
+```
+
+## Keep the plugin in sync
+
+The shared Host Bridge core now comes from the private source repo, and this repo keeps only the Unraid-specific overlay on top of it.
+
+Sync the current refactored core from the private Host Bridge repo:
+
+```bash
+scripts/sync_core_from_host_bridge.sh
+```
+
+Or point at a different source checkout explicitly:
+
+```bash
+scripts/sync_core_from_host_bridge.sh /path/to/ESP-Host-Bridge-private
+```
+
+After changing Unraid-specific overlay files, refresh the overlay patch that the sync script reapplies:
+
+```bash
+scripts/refresh_unraid_overlay_patch.sh
+```
+
+Recommended flow:
+
+1. sync from the private Host Bridge repo
+2. review the diff and bump the Unraid repo version if needed
+3. run the local test floor
+4. rebuild `unraid_plugin/`
+
+Validation commands:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 -m py_compile esp_host_bridge/*.py esp_host_bridge/integrations/*.py tests/test_*.py
+node --check esp_host_bridge/host_ui.js
+unraid_plugin/build_unraid_plugin.sh
 ```
 
 ## Runtime configuration on Unraid
@@ -75,7 +117,7 @@ The Unraid plugin installs files under:
 
 In Unraid, go to `Plugins` -> `Install Plugin` and paste the release `.plg` URL:
 
-- `https://github.com/rog713/ESP-Host-Bridge-Unraid/releases/download/2026.03.30.3/esp-host-bridge.plg`
+- `https://github.com/rog713/ESP-Host-Bridge-Unraid/releases/download/<version>/esp-host-bridge.plg`
 
 After install:
 

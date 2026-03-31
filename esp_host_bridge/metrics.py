@@ -8,11 +8,9 @@ import os
 import re
 import socket
 import subprocess
-import urllib.error
-import urllib.request
+import time
 from typing import Any, Dict, Optional, Tuple
 
-from .config import UNRAID_API_DEFAULT_URL, UNRAID_API_FALLBACK_URLS
 from .runtime import (
     HOME_ASSISTANT_SELF_SLUG,
     SUPERVISOR_TOKEN,
@@ -136,371 +134,6 @@ def normalize_docker_data(v: Any) -> list[dict[str, Any]]:
             if isinstance(candidate, list):
                 return candidate
     return []
-
-def normalize_unraid_docker_data(v: Any) -> list[dict[str, Any]]:
-    rows = normalize_docker_data(v)
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        names = row.get("names")
-        if isinstance(names, list) and names:
-            raw_name = names[0]
-        else:
-            raw_name = row.get("name") or row.get("Names") or "container"
-        name = str(raw_name or "container").strip().lstrip("/")
-        state = str(row.get("state") or row.get("State") or "").strip().lower()
-        status = str(row.get("status") or row.get("Status") or "").strip()
-        out.append(
-            {
-                "id": row.get("id"),
-                "name": name or "container",
-                "Names": [f"/{name or 'container'}"],
-                "state": state,
-                "State": state,
-                "status": status,
-                "Status": status,
-                "auto_start": bool(row.get("autoStart")),
-            }
-        )
-    return out
-
-def normalize_unraid_vm_data(v: Any) -> list[dict[str, Any]]:
-    rows = v.get("domain") if isinstance(v, dict) else v
-    if not isinstance(rows, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        name = str(row.get("name") or "VM").strip() or "VM"
-        state_raw = row.get("state")
-        _key, state_label = classify_vm_state(state_raw)
-        out.append(
-            {
-                "id": row.get("id"),
-                "uuid": row.get("uuid"),
-                "name": name,
-                "state": state_raw,
-                "vcpus": 0,
-                "max_mem_mib": 0,
-                "state_label": state_label,
-            }
-        )
-    return out
-
-def get_unraid_cpu_percent(bundle: dict[str, Any]) -> Optional[float]:
-    metrics = bundle.get("metrics")
-    if not isinstance(metrics, dict):
-        return None
-    cpu = metrics.get("cpu")
-    if not isinstance(cpu, dict):
-        return None
-    rows = cpu.get("cpus")
-    if not isinstance(rows, list):
-        return None
-    vals: list[float] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        val = safe_float(row.get("percentTotal"), None)
-        if val is None:
-            continue
-        vals.append(max(0.0, min(100.0, float(val))))
-    if not vals:
-        return None
-    return sum(vals) / float(len(vals))
-
-def get_unraid_mem_percent(bundle: dict[str, Any]) -> Optional[float]:
-    metrics = bundle.get("metrics")
-    if not isinstance(metrics, dict):
-        return None
-    memory = metrics.get("memory")
-    if not isinstance(memory, dict):
-        return None
-    pct = safe_float(memory.get("percentTotal"), None)
-    if pct is not None:
-        return max(0.0, min(100.0, float(pct)))
-    used = safe_float(memory.get("used"), None)
-    total = safe_float(memory.get("total"), None)
-    if used is None or total is None or total <= 0:
-        return None
-    return max(0.0, min(100.0, (float(used) * 100.0) / float(total)))
-
-def get_unraid_array_usage_pct(bundle: dict[str, Any]) -> Optional[float]:
-    array = bundle.get("array")
-    if not isinstance(array, dict):
-        return None
-    capacity = array.get("capacity")
-    if not isinstance(capacity, dict):
-        return None
-    disks = capacity.get("disks")
-    if not isinstance(disks, dict):
-        return None
-    used = safe_float(disks.get("used"), None)
-    total = safe_float(disks.get("total"), None)
-    if used is None or total is None or total <= 0:
-        return None
-    return max(0.0, min(100.0, (float(used) * 100.0) / float(total)))
-
-def get_unraid_disk_temp_c(bundle: dict[str, Any], disk_device: Optional[str] = None) -> Optional[float]:
-    disk_rows = bundle.get("disks")
-    if isinstance(disk_rows, list):
-        preferred = _select_unraid_disk_temp(disk_rows, disk_device=disk_device)
-        if preferred is not None:
-            return preferred
-    array = bundle.get("array")
-    if not isinstance(array, dict):
-        return None
-    rows = array.get("disks")
-    if not isinstance(rows, list):
-        return None
-    hint_name = _normalize_disk_name(disk_device)
-    temps: list[float] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        temp = safe_float(row.get("temp"), None)
-        if temp is None or not (-20.0 <= temp <= 150.0):
-            continue
-        temp = float(temp)
-        temps.append(temp)
-        if hint_name:
-            candidates = [
-                row.get("name"),
-                row.get("device"),
-                row.get("id"),
-                row.get("serial"),
-                row.get("mountpoint"),
-            ]
-            for candidate in candidates:
-                if _normalize_disk_name(candidate) == hint_name:
-                    return temp
-    if temps:
-        return max(temps)
-    return None
-
-def get_unraid_disk_inventory(url: str, api_key: str, timeout: float) -> list[dict[str, Any]]:
-    data = _unraid_graphql_request(
-        url,
-        api_key,
-        """
-        query {
-          disks {
-            name
-            device
-            type
-            size
-            smartStatus
-            temperature
-            isSpinning
-            vendor
-            interfaceType
-            firmwareRevision
-            serialNum
-          }
-        }
-        """,
-        timeout,
-    )
-    rows = data.get("disks")
-    return rows if isinstance(rows, list) else []
-
-def _unraid_graphql_request(url: str, api_key: str, query: str, timeout: float) -> dict[str, Any]:
-    endpoint = str(url or "").strip()
-    if not endpoint:
-        raise RuntimeError("Unraid API URL is not configured")
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    key = str(api_key or "").strip()
-    if key:
-        headers["x-api-key"] = key
-    endpoints: list[str] = []
-    seen: set[str] = set()
-    for candidate in [endpoint, UNRAID_API_DEFAULT_URL, *UNRAID_API_FALLBACK_URLS]:
-        text = str(candidate or "").strip()
-        if text and text not in seen:
-            seen.add(text)
-            endpoints.append(text)
-    last_error = "unknown error"
-    for candidate in endpoints:
-        req = urllib.request.Request(
-            candidate,
-            data=json.dumps({"query": query}).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=max(1.0, float(timeout))) as resp:  # nosec B310 - caller controls endpoint
-                body = resp.read().decode("utf-8", errors="ignore")
-            endpoint = candidate
-            break
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", errors="ignore") if hasattr(e, "read") else ""
-            last_error = f"{candidate}: HTTP {e.code}: {detail or e.reason}"
-        except Exception as e:
-            last_error = f"{candidate}: request failed: {e}"
-    else:
-        raise RuntimeError(f"Unraid API request failed after fallback attempts ({last_error})")
-
-    try:
-        payload = json.loads(body)
-    except Exception as e:
-        raise RuntimeError("Unraid API returned invalid JSON") from e
-    if not isinstance(payload, dict):
-        raise RuntimeError("Unraid API returned an invalid response payload")
-    errors = payload.get("errors")
-    if isinstance(errors, list) and errors:
-        msg = "; ".join(str(row.get("message") or "GraphQL error") for row in errors if isinstance(row, dict))
-        raise RuntimeError(msg or "Unraid API returned GraphQL errors")
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        raise RuntimeError("Unraid API response is missing data")
-    return data
-
-def get_unraid_status_bundle(url: str, api_key: str, timeout: float) -> dict[str, Any]:
-    data = _unraid_graphql_request(
-        url,
-        api_key,
-        """
-        query {
-          info {
-            os {
-              platform
-              distro
-              release
-              uptime
-            }
-            cpu {
-              manufacturer
-              brand
-              cores
-              threads
-            }
-          }
-          metrics {
-            cpu {
-              cpus {
-                percentTotal
-              }
-            }
-            memory {
-              percentTotal
-              used
-              total
-            }
-          }
-          array {
-            state
-            capacity {
-              disks {
-                free
-                used
-                total
-              }
-            }
-            disks {
-              name
-              size
-              status
-              temp
-            }
-          }
-          docker {
-            containers {
-              id
-              names
-              state
-              status
-              autoStart
-            }
-          }
-          vms {
-            domain {
-              id
-              name
-              state
-              uuid
-            }
-          }
-        }
-        """,
-        timeout,
-    )
-    out: dict[str, Any] = {
-        "info": data.get("info") if isinstance(data.get("info"), dict) else {},
-        "metrics": data.get("metrics") if isinstance(data.get("metrics"), dict) else {},
-        "array": data.get("array") if isinstance(data.get("array"), dict) else {},
-        "docker": {},
-        "vms": {},
-    }
-    docker_rows = data.get("docker")
-    if isinstance(docker_rows, dict):
-        out["docker"] = docker_rows
-    vm_rows = data.get("vms")
-    if isinstance(vm_rows, dict):
-        out["vms"] = vm_rows
-    return out
-
-def get_unraid_optional_overview(url: str, api_key: str, timeout: float) -> dict[str, Any]:
-    data = _unraid_graphql_request(
-        url,
-        api_key,
-        """
-        query {
-          server {
-            name
-            status
-            lanip
-            localurl
-            remoteurl
-          }
-          services {
-            name
-            online
-            version
-          }
-          shares {
-            name
-            free
-            used
-            size
-            cache
-            comment
-            luksStatus
-          }
-          plugins {
-            name
-            version
-            hasApiModule
-            hasCliModule
-          }
-          disks {
-            name
-            device
-            type
-            size
-            smartStatus
-            temperature
-            isSpinning
-            vendor
-            interfaceType
-            firmwareRevision
-            serialNum
-          }
-        }
-        """,
-        timeout,
-    )
-    return {
-        "server": data.get("server") if isinstance(data.get("server"), dict) else {},
-        "services": data.get("services") if isinstance(data.get("services"), list) else [],
-        "shares": data.get("shares") if isinstance(data.get("shares"), list) else [],
-        "plugins": data.get("plugins") if isinstance(data.get("plugins"), list) else [],
-        "disks": data.get("disks") if isinstance(data.get("disks"), list) else [],
-    }
 
 def vm_summary_counts(vm_data: list[dict[str, Any]]) -> Dict[str, int]:
     counts = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
@@ -628,6 +261,71 @@ def _psutil_net_dev() -> dict[str, Tuple[float, float]]:
         return {}
     return out
 
+
+def _iface_is_routable(iface: str) -> bool:
+    if not psutil or not hasattr(psutil, "net_if_addrs"):
+        return False
+    try:
+        addrs = psutil.net_if_addrs().get(iface, [])
+    except Exception:
+        return False
+    for addr in addrs:
+        family = getattr(addr, "family", None)
+        value = str(getattr(addr, "address", "") or "").strip()
+        if not value:
+            continue
+        if family == socket.AF_INET:
+            if value.startswith("127.") or value.startswith("169.254."):
+                continue
+            return True
+        if getattr(socket, "AF_INET6", None) == family:
+            ll = value.lower()
+            if ll == "::1" or ll.startswith("fe80:"):
+                continue
+            return True
+    return False
+
+
+def _preferred_net_iface(stats: dict[str, Tuple[float, float]]) -> Optional[str]:
+    if not stats:
+        return None
+    iface_stats = {}
+    if psutil and hasattr(psutil, "net_if_stats"):
+        try:
+            iface_stats = psutil.net_if_stats()
+        except Exception:
+            iface_stats = {}
+
+    exclude_exact = {"lo", "loopback", "lo0", "gif0", "stf0", "bridge0", "awdl0", "llw0", "ap1"}
+    exclude_prefixes = ("utun", "gif", "stf", "anpi", "bridge", "awdl", "llw", "ap")
+    prefer_prefixes = ("en", "eth", "wl", "wlan")
+
+    def score(name: str, rx: float, tx: float) -> tuple[int, int, str]:
+        lname = name.lower()
+        total = int(rx + tx)
+        score_val = 0
+        if lname in exclude_exact or lname.startswith(exclude_prefixes):
+            score_val -= 1000
+        if lname.startswith(prefer_prefixes):
+            score_val += 250
+        if _iface_is_routable(name):
+            score_val += 200
+        row = iface_stats.get(name)
+        if row is not None and bool(getattr(row, "isup", False)):
+            score_val += 100
+        if total > 0:
+            score_val += 50
+        return score_val, total, lname
+
+    ranked = sorted(
+        ((score(name, rx, tx), name) for name, (rx, tx) in stats.items()),
+        reverse=True,
+    )
+    for (score_val, _total, _lname), name in ranked:
+        if score_val > -1000:
+            return name
+    return ranked[0][1] if ranked else None
+
 def get_net_bytes_local(iface_hint: Optional[str] = None, last_iface: Optional[str] = None) -> Tuple[float, float, Optional[str]]:
     stats = _parse_proc_net_dev() or _psutil_net_dev()
     if not stats:
@@ -638,9 +336,10 @@ def get_net_bytes_local(iface_hint: Optional[str] = None, last_iface: Optional[s
     if last_iface and last_iface in stats:
         rx, tx = stats[last_iface]
         return rx, tx, last_iface
-    for iface, (rx, tx) in stats.items():
-        if iface.lower() not in {"lo", "loopback", "lo0"}:
-            return rx, tx, iface
+    iface = _preferred_net_iface(stats)
+    if iface and iface in stats:
+        rx, tx = stats[iface]
+        return rx, tx, iface
     iface = next(iter(stats.keys()))
     rx, tx = stats[iface]
     return rx, tx, iface
@@ -886,63 +585,15 @@ def _extract_temp_from_text(text: str) -> Optional[float]:
 def _normalize_disk_name(v: Optional[str]) -> Optional[str]:
     if not v:
         return None
-    s = str(v).strip().lower()
+    s = str(v).strip()
     if not s:
         return None
     if s.startswith("/dev/"):
         s = s[5:]
-    m = re.match(r"^(nvme\d+n\d+)p\d+$", s)
-    if m:
-        return m.group(1)
-    m = re.match(r"^(mmcblk\d+)p\d+$", s)
-    if m:
-        return m.group(1)
-    m = re.match(r"^((?:sd|vd|xvd|hd)[a-z]+)\d+$", s)
-    if m:
-        return m.group(1)
+    if s.startswith("nvme") and "p" in s:
+        s = re.sub(r"p\d+$", "", s)
+    s = re.sub(r"\d+$", "", s)
     return s
-
-def _select_unraid_disk_temp(rows: list[dict[str, Any]], disk_device: Optional[str] = None) -> Optional[float]:
-    hint_raw = str(disk_device or "").strip().lower()
-    hint_norm = _normalize_disk_name(disk_device)
-    preferred_temps: list[float] = []
-    all_temps: list[float] = []
-
-    def _is_flash_like(row: dict[str, Any]) -> bool:
-        iface = str(row.get("interfaceType") or "").strip().upper()
-        dtype = str(row.get("type") or "").strip().upper()
-        name = str(row.get("name") or "").strip().lower()
-        device = str(row.get("device") or "").strip().lower()
-        return iface == "USB" or "flash" in name or device == "/dev/sda" and dtype == "HD" and iface == "USB"
-
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        temp = safe_float(row.get("temperature"), None)
-        if temp is None or not (-20.0 <= temp <= 150.0):
-            continue
-        temp = float(temp)
-        all_temps.append(temp)
-        device = str(row.get("device") or "").strip().lower()
-        if hint_raw:
-            if device and (device == hint_raw or device == f"/dev/{hint_raw.removeprefix('/dev/')}"):
-                return temp
-            if hint_norm:
-                for candidate in (
-                    row.get("device"),
-                    row.get("name"),
-                    row.get("serialNum"),
-                ):
-                    if _normalize_disk_name(candidate) == hint_norm:
-                        return temp
-        if not _is_flash_like(row):
-            preferred_temps.append(temp)
-
-    if preferred_temps:
-        return max(preferred_temps)
-    if all_temps:
-        return max(all_temps)
-    return None
 
 def _disk_candidates(device_hint: Optional[str]) -> list[str]:
     out: list[str] = []
@@ -1350,11 +1001,6 @@ __all__ = [
     "detect_hardware_choices",
     "docker_summary_counts",
     "get_cpu_percent",
-    "get_unraid_array_usage_pct",
-    "get_unraid_cpu_percent",
-    "get_unraid_disk_temp_c",
-    "get_unraid_mem_percent",
-    "get_unraid_optional_overview",
     "get_cpu_temp_c",
     "get_disk_bytes_local",
     "get_disk_temp_c",
@@ -1367,14 +1013,11 @@ __all__ = [
     "get_mem_percent",
     "get_net_bytes_local",
     "get_uptime_seconds",
-    "get_unraid_status_bundle",
     "get_virtual_machines_from_virsh",
     "list_cpu_temp_sensor_choices",
     "list_disk_device_choices",
     "list_fan_sensor_choices",
     "list_network_interface_choices",
-    "normalize_unraid_docker_data",
-    "normalize_unraid_vm_data",
     "normalize_docker_data",
     "vm_summary_counts",
 ]

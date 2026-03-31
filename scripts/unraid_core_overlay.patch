@@ -1,0 +1,1094 @@
+--- a/esp_host_bridge/integrations/__init__.py
++++ b/esp_host_bridge/integrations/__init__.py
+@@ -13,6 +13,7 @@
+     SummaryChipSpec,
+ )
+ from .host import HOST_INTEGRATION
++from .unraid import UNRAID_INTEGRATION
+ from .registry import (
+     command_registry_snapshot,
+     dispatch_integration_command,
+@@ -49,6 +50,7 @@
+     "DashboardGroupSpec",
+     "IntegrationSpec",
+     "HOST_INTEGRATION",
++    "UNRAID_INTEGRATION",
+     "PollContext",
+     "PreviewCardSpec",
+     "PreviewPageSpec",
+--- a/esp_host_bridge/integrations/registry.py
++++ b/esp_host_bridge/integrations/registry.py
+@@ -18,9 +18,11 @@
+ )
+ from .docker import DOCKER_INTEGRATION
+ from .host import HOST_INTEGRATION
++from .unraid import UNRAID_INTEGRATION
+ from .vms import VMS_INTEGRATION
+ 
+ _REGISTERED_INTEGRATIONS: tuple[IntegrationSpec, ...] = (
++    UNRAID_INTEGRATION,
+     HOST_INTEGRATION,
+     DOCKER_INTEGRATION,
+     VMS_INTEGRATION,
+--- a/esp_host_bridge/integrations/host.py
++++ b/esp_host_bridge/integrations/host.py
+@@ -14,6 +14,12 @@
+     get_mem_percent,
+     get_net_bytes_local,
+     get_uptime_seconds,
++)
++from ..unraid_api import (
++    get_unraid_array_usage_pct,
++    get_unraid_cpu_percent,
++    get_unraid_disk_temp_c,
++    get_unraid_mem_percent,
+ )
+ from .base import (
+     CleanerSet,
+@@ -645,6 +651,7 @@
+ def poll(ctx: PollContext) -> Dict[str, Any]:
+     cache = _cache(ctx.state)
+     state = ctx.state
++    source_label = "local_probes"
+     try:
+         cpu_pct, state.cpu_prev_total, state.cpu_prev_idle = get_cpu_percent(state.cpu_prev_total, state.cpu_prev_idle)
+         mem_pct = get_mem_percent()
+@@ -704,6 +711,30 @@
+         state.prev_disk_read_b, state.prev_disk_write_b = disk_read_b, disk_write_b
+         state.prev_rx, state.prev_tx, state.prev_t = rx_bytes, tx_bytes, ctx.now
+ 
++        integration_cache = getattr(state, "integration_cache", None)
++        unraid_cache = integration_cache.get("unraid") if isinstance(integration_cache, dict) else None
++        unraid_bundle = dict(unraid_cache.get("bundle") or {}) if isinstance(unraid_cache, dict) else {}
++        if bool(unraid_cache.get("api_ok")) and unraid_bundle:
++            source_label = "unraid_api+local_probes"
++            api_cpu_pct = get_unraid_cpu_percent(unraid_bundle)
++            if api_cpu_pct is not None:
++                cpu_pct = float(api_cpu_pct)
++            api_mem_pct = get_unraid_mem_percent(unraid_bundle)
++            if api_mem_pct is not None:
++                mem_pct = float(api_mem_pct)
++            api_disk_temp = get_unraid_disk_temp_c(
++                unraid_bundle,
++                ctx.args.disk_temp_device or ctx.args.disk_device or state.active_disk,
++            )
++            if api_disk_temp is not None:
++                state.disk_temp_c = float(api_disk_temp)
++                state.disk_temp_available = True
++                state.last_disk_temp_ts = ctx.now
++            api_disk_pct = get_unraid_array_usage_pct(unraid_bundle)
++            if api_disk_pct is not None:
++                state.disk_usage_pct = float(api_disk_pct)
++                state.last_disk_usage_ts = ctx.now
++
+         metrics = {
+             "cpu_pct": float(cpu_pct),
+             "mem_pct": float(mem_pct),
+@@ -754,7 +785,7 @@
+             "integration_id": "host",
+             "enabled": True,
+             "available": cache.get("available"),
+-            "source": "local_probes",
++            "source": source_label,
+             "last_refresh_ts": last_refresh_ts or None,
+             "last_success_ts": last_success_ts or None,
+             "last_error": last_error or None,
+--- a/esp_host_bridge/integrations/docker.py
++++ b/esp_host_bridge/integrations/docker.py
+@@ -338,8 +338,21 @@
+     cache = _cache(ctx.state)
+     enabled = not bool(getattr(ctx.args, "disable_docker_polling", False))
+     interval = max(0.0, float(getattr(ctx.args, "docker_interval", 2.0) or 0.0))
++    integration_cache = getattr(ctx.state, "integration_cache", None)
++    unraid_cache = integration_cache.get("unraid") if isinstance(integration_cache, dict) else None
++    use_unraid_source = enabled and not ctx.homeassistant_mode and isinstance(unraid_cache, dict) and bool(unraid_cache.get("api_ok"))
+ 
+-    if enabled and interval > 0.0 and (
++    if use_unraid_source:
++        cache["items"] = list(unraid_cache.get("docker_items") or [])
++        cache["counts"] = dict(unraid_cache.get("docker_counts") or DOCKER_DEFAULT_COUNTS)
++        cache["api_ok"] = True
++        cache["available"] = True
++        cache["last_refresh_ts"] = float(unraid_cache.get("last_refresh_ts") or ctx.now)
++        cache["last_success_ts"] = float(unraid_cache.get("last_success_ts") or ctx.now)
++        cache["last_error"] = ""
++        cache["last_error_ts"] = 0.0
++
++    if not use_unraid_source and enabled and interval > 0.0 and (
+         not cache.get("last_refresh_ts") or (ctx.now - float(cache.get("last_refresh_ts") or 0.0)) >= interval
+     ):
+         try:
+@@ -398,7 +411,11 @@
+             "integration_id": "docker",
+             "enabled": enabled,
+             "available": cache.get("available"),
+-            "source": "home_assistant_supervisor" if ctx.homeassistant_mode else "docker_socket",
++            "source": (
++                "home_assistant_supervisor"
++                if ctx.homeassistant_mode
++                else ("unraid_graphql" if use_unraid_source else "docker_socket")
++            ),
+             "last_refresh_ts": last_refresh_ts or None,
+             "last_success_ts": last_success_ts or None,
+             "last_error": last_error or None,
+--- a/esp_host_bridge/integrations/vms.py
++++ b/esp_host_bridge/integrations/vms.py
+@@ -381,8 +381,21 @@
+     cache = _cache(ctx.state)
+     enabled = not bool(getattr(ctx.args, "disable_vm_polling", False))
+     interval = max(0.0, float(getattr(ctx.args, "vm_interval", 5.0) or 0.0))
++    integration_cache = getattr(ctx.state, "integration_cache", None)
++    unraid_cache = integration_cache.get("unraid") if isinstance(integration_cache, dict) else None
++    use_unraid_source = enabled and not ctx.homeassistant_mode and isinstance(unraid_cache, dict) and bool(unraid_cache.get("api_ok"))
+ 
+-    if enabled and interval > 0.0 and (
++    if use_unraid_source:
++        cache["items"] = list(unraid_cache.get("vm_items") or [])
++        cache["counts"] = dict(unraid_cache.get("vm_counts") or VMS_DEFAULT_COUNTS)
++        cache["api_ok"] = True
++        cache["available"] = True
++        cache["last_refresh_ts"] = float(unraid_cache.get("last_refresh_ts") or ctx.now)
++        cache["last_success_ts"] = float(unraid_cache.get("last_success_ts") or ctx.now)
++        cache["last_error"] = ""
++        cache["last_error_ts"] = 0.0
++
++    if not use_unraid_source and enabled and interval > 0.0 and (
+         not cache.get("last_refresh_ts") or (ctx.now - float(cache.get("last_refresh_ts") or 0.0)) >= interval
+     ):
+         try:
+@@ -441,7 +454,11 @@
+             "integration_id": "vms",
+             "enabled": enabled,
+             "available": cache.get("available"),
+-            "source": "home_assistant_core_websocket" if ctx.homeassistant_mode else "virsh",
++            "source": (
++                "home_assistant_core_websocket"
++                if ctx.homeassistant_mode
++                else ("unraid_graphql" if use_unraid_source else "virsh")
++            ),
+             "last_refresh_ts": last_refresh_ts or None,
+             "last_success_ts": last_success_ts or None,
+             "last_error": last_error or None,
+--- a/esp_host_bridge/integrations/unraid.py
++++ b/esp_host_bridge/integrations/unraid.py
+@@ -0,0 +1,247 @@
++from __future__ import annotations
++
++import logging
++from typing import Any, Dict
++
++from ..unraid_api import (
++    UNRAID_API_DEFAULT_URL,
++    UNRAID_API_FALLBACK_URLS,
++    get_unraid_status_bundle,
++    normalize_unraid_docker_data,
++    normalize_unraid_vm_data,
++)
++from .base import CleanerSet, ConfigFieldSpec, IntegrationSpec, PollContext
++
++UNRAID_WARN_INTERVAL_SECONDS = 30.0
++UNRAID_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "unhealthy": 0}
++UNRAID_DEFAULT_VM_COUNTS = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
++
++UNRAID_CONFIG_FIELDS = (
++    ConfigFieldSpec(
++        "unraid_api_enabled",
++        "bool",
++        False,
++        checkbox=True,
++        label="Enable Unraid API",
++        hint="Use the Unraid 7.2+ GraphQL API for array info and as the preferred source for Docker and VM inventory on Unraid.",
++        section_key="unraid_api",
++    ),
++    ConfigFieldSpec(
++        "unraid_api_url",
++        "str",
++        UNRAID_API_DEFAULT_URL,
++        cli_flag="--unraid-api-url",
++        label="GraphQL URL",
++        hint=(
++            f"Default local endpoint is <code>{UNRAID_API_DEFAULT_URL}</code>. "
++            f"If that fails, the bridge also tries <code>{UNRAID_API_FALLBACK_URLS[0]}</code>."
++        ),
++        section_key="unraid_api",
++    ),
++    ConfigFieldSpec(
++        "unraid_api_key",
++        "str",
++        "",
++        secret=True,
++        cli_flag="--unraid-api-key",
++        label="API Key",
++        hint=(
++            "Sent as the <code>x-api-key</code> header. Create a Unraid key with at least "
++            "<code>INFO:READ_ANY</code>, <code>ARRAY:READ_ANY</code>, <code>DOCKER:READ_ANY</code>, "
++            "<code>VMS:READ_ANY</code>, and <code>DISK:READ_ANY</code>."
++        ),
++        section_key="unraid_api",
++    ),
++    ConfigFieldSpec(
++        "unraid_api_interval",
++        "float",
++        5.0,
++        cli_flag="--unraid-api-interval",
++        label="API Poll Interval (s)",
++        hint="How often Unraid GraphQL data is refreshed. <code>5</code> is a good default.",
++        section_key="unraid_api",
++        input_step="0.1",
++    ),
++)
++
++
++def _docker_summary_counts(rows: list[dict[str, Any]]) -> Dict[str, int]:
++    counts = {"running": 0, "stopped": 0, "unhealthy": 0}
++    for row in rows:
++        if not isinstance(row, dict):
++            continue
++        state = str(row.get("state") or row.get("State") or row.get("status") or row.get("Status") or "").strip().lower()
++        if "unhealthy" in state:
++            counts["unhealthy"] += 1
++        if any(token in state for token in ("running", "up", "healthy")):
++            counts["running"] += 1
++        else:
++            counts["stopped"] += 1
++    return counts
++
++
++def _vm_summary_counts(rows: list[dict[str, Any]]) -> Dict[str, int]:
++    counts = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
++    for row in rows:
++        if not isinstance(row, dict):
++            continue
++        state = str(row.get("state_label") or row.get("state") or "").strip().lower()
++        if any(token in state for token in ("running", "idle", "shutdown", "no state")):
++            counts["running"] += 1
++        elif any(token in state for token in ("paused", "suspended", "blocked")):
++            counts["paused"] += 1
++        elif any(token in state for token in ("stopped", "shut", "crashed")):
++            counts["stopped"] += 1
++        else:
++            counts["other"] += 1
++    return counts
++
++
++def _cache(state: Any) -> Dict[str, Any]:
++    integration_cache = getattr(state, "integration_cache", None)
++    if not isinstance(integration_cache, dict):
++        integration_cache = {}
++        setattr(state, "integration_cache", integration_cache)
++    cached = integration_cache.get("unraid")
++    if not isinstance(cached, dict):
++        cached = {
++            "bundle": {},
++            "docker_items": [],
++            "docker_counts": dict(UNRAID_DEFAULT_COUNTS),
++            "vm_items": [],
++            "vm_counts": dict(UNRAID_DEFAULT_VM_COUNTS),
++            "last_refresh_ts": 0.0,
++            "last_success_ts": 0.0,
++            "last_warn_ts": 0.0,
++            "last_error": "",
++            "last_error_ts": 0.0,
++            "available": None,
++            "api_ok": None,
++            "source": "disabled",
++        }
++        integration_cache["unraid"] = cached
++    return cached
++
++
++def validate_cfg(cfg: Dict[str, Any], clean: CleanerSet) -> list[str]:
++    errors: list[str] = []
++    enabled = clean.clean_bool(cfg.get("unraid_api_enabled"), False)
++    interval = clean.clean_float(cfg.get("unraid_api_interval"), 0.0)
++    if interval < 0.0:
++        errors.append("unraid_api_interval must be >= 0")
++    if enabled:
++        if not clean.clean_str(cfg.get("unraid_api_url"), ""):
++            errors.append("unraid_api_url is required when Unraid API polling is enabled")
++        if not clean.clean_str(cfg.get("unraid_api_key"), ""):
++            errors.append("unraid_api_key is required when Unraid API polling is enabled")
++    return errors
++
++
++def cfg_to_agent_args(cfg: Dict[str, Any], clean: CleanerSet) -> list[str]:
++    argv = [
++        "--unraid-api-interval",
++        str(clean.clean_float(cfg.get("unraid_api_interval"), 5.0)),
++    ]
++    url = clean.clean_str(cfg.get("unraid_api_url"), UNRAID_API_DEFAULT_URL)
++    key = clean.clean_str(cfg.get("unraid_api_key"), "")
++    if url:
++        argv += ["--unraid-api-url", url]
++    if key:
++        argv += ["--unraid-api-key", key]
++    if clean.clean_bool(cfg.get("unraid_api_enabled"), False):
++        argv.append("--enable-unraid-api")
++    return argv
++
++
++def poll(ctx: PollContext) -> Dict[str, Any]:
++    cache = _cache(ctx.state)
++    enabled = bool(getattr(ctx.args, "enable_unraid_api", False)) and not ctx.homeassistant_mode
++    interval = max(0.0, float(getattr(ctx.args, "unraid_api_interval", 5.0) or 0.0))
++
++    if enabled and interval > 0.0 and (
++        not cache.get("last_refresh_ts") or (ctx.now - float(cache.get("last_refresh_ts") or 0.0)) >= interval
++    ):
++        try:
++            bundle = get_unraid_status_bundle(ctx.args.unraid_api_url, ctx.args.unraid_api_key, timeout=ctx.args.timeout)
++            docker_items = normalize_unraid_docker_data(bundle.get("docker"))
++            vm_items = normalize_unraid_vm_data(bundle.get("vms"))
++            cache["bundle"] = bundle
++            cache["docker_items"] = docker_items
++            cache["docker_counts"] = _docker_summary_counts(docker_items)
++            cache["vm_items"] = vm_items
++            cache["vm_counts"] = _vm_summary_counts(vm_items)
++            cache["available"] = True
++            cache["api_ok"] = True
++            cache["source"] = "unraid_graphql"
++            cache["last_success_ts"] = ctx.now
++            cache["last_error"] = ""
++            cache["last_error_ts"] = 0.0
++        except Exception as exc:
++            cache["available"] = False
++            cache["api_ok"] = False
++            cache["source"] = "unraid_graphql"
++            cache["last_error"] = str(exc).strip()[:200]
++            cache["last_error_ts"] = ctx.now
++            last_warn_ts = float(cache.get("last_warn_ts") or 0.0)
++            if (ctx.now - last_warn_ts) >= UNRAID_WARN_INTERVAL_SECONDS:
++                logging.warning(
++                    "Unraid API unavailable via %s; continuing with local fallback sources (%s)",
++                    getattr(ctx.args, "unraid_api_url", UNRAID_API_DEFAULT_URL),
++                    exc,
++                )
++                cache["last_warn_ts"] = ctx.now
++        cache["last_refresh_ts"] = ctx.now
++
++    if not enabled:
++        cache["available"] = None
++        cache["api_ok"] = None
++        cache["source"] = "disabled"
++        cache["bundle"] = {}
++        cache["docker_items"] = []
++        cache["docker_counts"] = dict(UNRAID_DEFAULT_COUNTS)
++        cache["vm_items"] = []
++        cache["vm_counts"] = dict(UNRAID_DEFAULT_VM_COUNTS)
++
++    last_refresh_ts = float(cache.get("last_refresh_ts") or 0.0)
++    last_success_ts = float(cache.get("last_success_ts") or 0.0)
++    last_error_ts = float(cache.get("last_error_ts") or 0.0)
++    last_error = str(cache.get("last_error") or "").strip()
++    bundle = dict(cache.get("bundle") or {})
++    return {
++        "enabled": enabled,
++        "api_ok": cache.get("api_ok"),
++        "source": cache.get("source") or "disabled",
++        "bundle": bundle,
++        "array": dict(bundle.get("array") or {}) if isinstance(bundle.get("array"), dict) else {},
++        "info": dict(bundle.get("info") or {}) if isinstance(bundle.get("info"), dict) else {},
++        "docker_items": list(cache.get("docker_items") or []),
++        "docker_counts": dict(cache.get("docker_counts") or UNRAID_DEFAULT_COUNTS),
++        "vm_items": list(cache.get("vm_items") or []),
++        "vm_counts": dict(cache.get("vm_counts") or UNRAID_DEFAULT_VM_COUNTS),
++        "health": {
++            "integration_id": "unraid",
++            "enabled": enabled,
++            "available": cache.get("available"),
++            "source": str(cache.get("source") or "disabled"),
++            "last_refresh_ts": last_refresh_ts or None,
++            "last_success_ts": last_success_ts or None,
++            "last_error": last_error or None,
++            "last_error_ts": last_error_ts or None,
++            "commands": [],
++            "api_ok": cache.get("api_ok"),
++        },
++    }
++
++
++UNRAID_INTEGRATION = IntegrationSpec(
++    integration_id="unraid",
++    title="Unraid API",
++    section_key="unraid_api",
++    icon_class="mdi-server-network",
++    sort_order=15,
++    action_group_title="Unraid API",
++    config_fields=UNRAID_CONFIG_FIELDS,
++    validate_cfg=validate_cfg,
++    cfg_to_agent_args=cfg_to_agent_args,
++    poll=poll,
++)
+--- a/esp_host_bridge/runtime.py
++++ b/esp_host_bridge/runtime.py
+@@ -286,6 +286,7 @@
+     redact_agent_command_args,
+     summary_bar_snapshot,
+ )
++from .unraid_api import UNRAID_API_DEFAULT_URL
+ from .serial import serial_io_bypassed, try_open_serial_once
+ 
+ 
+@@ -875,6 +876,10 @@
+     ap.add_argument("--virsh-uri", default=None, help="Optional virsh connection URI, e.g. qemu:///system")
+     ap.add_argument("--vm-interval", type=float, default=5.0, help="VM refresh interval in seconds (0 disables polling)")
+     ap.add_argument("--disable-vm-polling", action="store_true", help="Disable VM polling entirely")
++    ap.add_argument("--enable-unraid-api", action="store_true", help="Use the Unraid GraphQL API as the preferred Unraid data source")
++    ap.add_argument("--unraid-api-url", default=UNRAID_API_DEFAULT_URL, help="Unraid GraphQL API endpoint")
++    ap.add_argument("--unraid-api-key", default=None, help="Unraid GraphQL API key sent as x-api-key")
++    ap.add_argument("--unraid-api-interval", type=float, default=5.0, help="Unraid GraphQL refresh interval in seconds (0 disables polling)")
+     ap.add_argument("--disable-gpu-polling", action="store_true", help="Disable GPU polling entirely")
+     ap.add_argument("--disk-device", default=None, help="Disk device for throughput (e.g. /dev/nvme0n1 or sda)")
+     ap.add_argument("--disk-temp-device", default=None, help="Disk device for temperature (e.g. /dev/nvme0n1)")
+--- a/esp_host_bridge/webui_app.py
++++ b/esp_host_bridge/webui_app.py
+@@ -19,6 +19,7 @@
+ 
+ from .config import (
+     _clean_bool,
++    _clean_float,
+     _clean_str,
+     REDACTED_SECRET_TEXT,
+     atomic_write_json,
+@@ -55,6 +56,7 @@
+     RunnerManager,
+ )
+ from .serial import list_serial_port_choices, test_serial_open
++from .unraid_api import get_unraid_optional_overview, get_unraid_status_bundle
+ 
+ 
+ def _redir(value: str, key: str = "msg"):
+@@ -100,7 +102,14 @@
+         number_value = html.escape(str(value))
+         control = f'<input name="{html.escape(field_name)}" type="number" step="{html.escape(step)}" value="{number_value}">'
+     else:
+-        input_attrs = [f'name="{html.escape(field_name)}"', 'type="text"', f'value="{html.escape(str(value or ""))}"']
++        input_type = "password" if getattr(field, "secret", False) else "text"
++        input_value = "" if getattr(field, "secret", False) else str(value or "")
++        input_attrs = [f'name="{html.escape(field_name)}"', f'type="{input_type}"', f'value="{html.escape(input_value)}"']
++        if getattr(field, "secret", False):
++            input_attrs.append('autocomplete="new-password"')
++            placeholder = secret_placeholder_text(bool(_clean_str(value, "")), REDACTED_SECRET_TEXT)
++            if placeholder:
++                input_attrs.append(f'placeholder="{html.escape(placeholder)}"')
+         input_id = str(getattr(field, "input_id", "") or "").strip()
+         if input_id:
+             input_attrs.append(f'id="{html.escape(input_id)}"')
+@@ -688,6 +697,11 @@
+     self_script = Path(portable_script or str(Path(__file__).resolve()))
+     package_module = None if portable_script else ((__package__ or "").split(".", 1)[0] or None)
+     pub = RunnerManager(self_script=self_script, python_bin=python_bin, package_module=package_module)
++    unraid_status_cache: Dict[str, Any] = {
++        "sig": "",
++        "ts": 0.0,
++        "payload": {},
++    }
+     if cfg_migrated and cfg_migrated_from is not None and hasattr(pub, "log_event"):
+         pub.log_event(f"[config migrated] {cfg_migrated_from} -> {cfg_path}")
+     initial_cfg = load_cfg(cfg_path)
+@@ -871,6 +885,7 @@
+       </div></details>
+       {_render_integration_setup_section(cfg, "host", homeassistant_mode)}
+       {_render_integration_setup_section(cfg, "docker", homeassistant_mode)}
++      {_render_integration_setup_section(cfg, "unraid", homeassistant_mode) if not homeassistant_mode else ""}
+       {_render_integration_setup_section(cfg, "vms", homeassistant_mode)}
+       <details class=\"section\" data-section-key=\"power_commands\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-power\"></span></span>Power Commands</summary><div class=\"section-body\">
+       {power_commands_body}
+@@ -1131,6 +1146,57 @@
+             homeassistant_mode=is_home_assistant_app_mode(),
+             redact_mask=REDACTED_SECRET_TEXT,
+         )
++        cfg = load_cfg(cfg_path)
++        integration_health = status.get("integration_health") if isinstance(status.get("integration_health"), dict) else {}
++        unraid_health = integration_health.get("unraid") if isinstance(integration_health, dict) else {}
++        unraid_status: Dict[str, Any] = {}
++        if isinstance(unraid_health, dict):
++            api_ok = unraid_health.get("api_ok")
++            if api_ok is not None:
++                unraid_status["api_ok"] = api_ok
++            source = _clean_str(unraid_health.get("source"), "")
++            if source:
++                unraid_status["source"] = source
++        if _clean_bool(cfg.get("unraid_api_enabled"), False):
++            unraid_url = _clean_str(cfg.get("unraid_api_url"), "")
++            unraid_key = _clean_str(cfg.get("unraid_api_key"), "")
++            timeout_s = max(1.0, _clean_float(cfg.get("timeout"), 2.0))
++            if unraid_url and unraid_key:
++                sig = f"{unraid_url}|{unraid_key}|{timeout_s:.1f}"
++                cached_sig = _clean_str(unraid_status_cache.get("sig"), "")
++                cached_payload = unraid_status_cache.get("payload")
++                cached_ts = float(unraid_status_cache.get("ts") or 0.0)
++                now_ts = time.time()
++                if cached_sig == sig and isinstance(cached_payload, dict) and (now_ts - cached_ts) < 10.0:
++                    unraid_status.update(dict(cached_payload))
++                else:
++                    payload: Dict[str, Any] = {}
++                    try:
++                        bundle = get_unraid_status_bundle(unraid_url, unraid_key, timeout_s)
++                        payload["api_ok"] = True
++                        payload["info"] = dict(bundle.get("info") or {}) if isinstance(bundle.get("info"), dict) else {}
++                        payload["array"] = dict(bundle.get("array") or {}) if isinstance(bundle.get("array"), dict) else {}
++                    except Exception as exc:
++                        payload["api_ok"] = False
++                        payload["api_error"] = str(exc)
++                    if payload.get("api_ok") is True:
++                        try:
++                            payload.update(get_unraid_optional_overview(unraid_url, unraid_key, timeout_s))
++                            payload["api_extra_ok"] = True
++                            payload["api_extra_error"] = ""
++                        except Exception as exc:
++                            payload["api_extra_ok"] = False
++                            payload["api_extra_error"] = str(exc)
++                    unraid_status_cache.update(
++                        {
++                            "sig": sig,
++                            "ts": now_ts,
++                            "payload": dict(payload),
++                        }
++                    )
++                    unraid_status.update(payload)
++        if unraid_status:
++            status["unraid_status"] = unraid_status
+         return jsonify(status)
+ 
+     @app.get("/api/config")
+--- a/esp_host_bridge/unraid_api.py
++++ b/esp_host_bridge/unraid_api.py
+@@ -0,0 +1,431 @@
++from __future__ import annotations
++
++import json
++import urllib.error
++import urllib.request
++from typing import Any, Optional
++
++from .metrics import normalize_docker_data, safe_float
++
++UNRAID_API_DEFAULT_URL = "http://127.0.0.1/graphql"
++UNRAID_API_FALLBACK_URLS = ("http://127.0.0.1:3001/graphql",)
++
++
++def _normalize_disk_token(value: Any) -> str:
++    text = str(value or "").strip().lower()
++    if not text:
++        return ""
++    for prefix in ("/dev/", "/devices/", "/disk/by-id/"):
++        if text.startswith(prefix):
++            text = text[len(prefix):]
++    return text
++
++
++def _classify_vm_state(state_raw: Any) -> tuple[str, str]:
++    text = str(state_raw or "").strip().lower()
++    if not text:
++        return "stopped", "Stopped"
++    if any(token in text for token in ("running", "idle", "in shutdown", "shutdown", "no state")):
++        return "running", "Running"
++    if any(token in text for token in ("paused", "pmsuspended", "suspended", "blocked")):
++        return "paused", "Paused"
++    if any(token in text for token in ("shut off", "shutoff", "crashed")):
++        return "stopped", "Stopped"
++    return "other", text.title()
++
++
++def normalize_unraid_docker_data(v: Any) -> list[dict[str, Any]]:
++    rows = normalize_docker_data(v)
++    out: list[dict[str, Any]] = []
++    for row in rows:
++        if not isinstance(row, dict):
++            continue
++        names = row.get("names")
++        if isinstance(names, list) and names:
++            raw_name = names[0]
++        else:
++            raw_name = row.get("name") or row.get("Names") or "container"
++        name = str(raw_name or "container").strip().lstrip("/") or "container"
++        state = str(row.get("state") or row.get("State") or "").strip().lower()
++        status = str(row.get("status") or row.get("Status") or "").strip()
++        out.append(
++            {
++                "id": row.get("id"),
++                "name": name,
++                "Names": [f"/{name}"],
++                "state": state,
++                "State": state,
++                "status": status,
++                "Status": status,
++                "auto_start": bool(row.get("autoStart")),
++            }
++        )
++    return out
++
++
++def normalize_unraid_vm_data(v: Any) -> list[dict[str, Any]]:
++    rows = v.get("domain") if isinstance(v, dict) else v
++    if not isinstance(rows, list):
++        return []
++    out: list[dict[str, Any]] = []
++    for row in rows:
++        if not isinstance(row, dict):
++            continue
++        name = str(row.get("name") or "VM").strip() or "VM"
++        state_raw = row.get("state")
++        _state_key, state_label = _classify_vm_state(state_raw)
++        out.append(
++            {
++                "id": row.get("id"),
++                "uuid": row.get("uuid"),
++                "name": name,
++                "state": state_raw,
++                "vcpus": 0,
++                "max_mem_mib": 0,
++                "state_label": state_label,
++            }
++        )
++    return out
++
++
++def get_unraid_cpu_percent(bundle: dict[str, Any]) -> Optional[float]:
++    metrics = bundle.get("metrics")
++    if not isinstance(metrics, dict):
++        return None
++    cpu = metrics.get("cpu")
++    if not isinstance(cpu, dict):
++        return None
++    rows = cpu.get("cpus")
++    if not isinstance(rows, list):
++        return None
++    vals: list[float] = []
++    for row in rows:
++        if not isinstance(row, dict):
++            continue
++        val = safe_float(row.get("percentTotal"), None)
++        if val is None:
++            continue
++        vals.append(max(0.0, min(100.0, float(val))))
++    if not vals:
++        return None
++    return sum(vals) / float(len(vals))
++
++
++def get_unraid_mem_percent(bundle: dict[str, Any]) -> Optional[float]:
++    metrics = bundle.get("metrics")
++    if not isinstance(metrics, dict):
++        return None
++    memory = metrics.get("memory")
++    if not isinstance(memory, dict):
++        return None
++    pct = safe_float(memory.get("percentTotal"), None)
++    if pct is not None:
++        return max(0.0, min(100.0, float(pct)))
++    used = safe_float(memory.get("used"), None)
++    total = safe_float(memory.get("total"), None)
++    if used is None or total is None or total <= 0:
++        return None
++    return max(0.0, min(100.0, (float(used) * 100.0) / float(total)))
++
++
++def get_unraid_array_usage_pct(bundle: dict[str, Any]) -> Optional[float]:
++    array = bundle.get("array")
++    if not isinstance(array, dict):
++        return None
++    capacity = array.get("capacity")
++    if not isinstance(capacity, dict):
++        return None
++    disks = capacity.get("disks")
++    if not isinstance(disks, dict):
++        return None
++    used = safe_float(disks.get("used"), None)
++    total = safe_float(disks.get("total"), None)
++    if used is None or total is None or total <= 0:
++        return None
++    return max(0.0, min(100.0, (float(used) * 100.0) / float(total)))
++
++
++def get_unraid_disk_temp_c(bundle: dict[str, Any], disk_device: Optional[str] = None) -> Optional[float]:
++    disk_rows = bundle.get("disks")
++    if isinstance(disk_rows, list):
++        preferred = _select_unraid_disk_temp(disk_rows, disk_device=disk_device)
++        if preferred is not None:
++            return preferred
++    array = bundle.get("array")
++    if not isinstance(array, dict):
++        return None
++    rows = array.get("disks")
++    if not isinstance(rows, list):
++        return None
++    hint_name = _normalize_disk_token(disk_device)
++    temps: list[float] = []
++    for row in rows:
++        if not isinstance(row, dict):
++            continue
++        temp = safe_float(row.get("temp"), None)
++        if temp is None or not (-20.0 <= temp <= 150.0):
++            continue
++        temp = float(temp)
++        temps.append(temp)
++        if hint_name:
++            for candidate in (row.get("name"), row.get("device"), row.get("id"), row.get("serial"), row.get("mountpoint")):
++                if _normalize_disk_token(candidate) == hint_name:
++                    return temp
++    if temps:
++        return max(temps)
++    return None
++
++
++def get_unraid_disk_inventory(url: str, api_key: str, timeout: float) -> list[dict[str, Any]]:
++    data = _unraid_graphql_request(
++        url,
++        api_key,
++        """
++        query {
++          disks {
++            name
++            device
++            type
++            size
++            smartStatus
++            temperature
++            isSpinning
++            vendor
++            interfaceType
++            firmwareRevision
++            serialNum
++          }
++        }
++        """,
++        timeout,
++    )
++    rows = data.get("disks")
++    return rows if isinstance(rows, list) else []
++
++
++def get_unraid_status_bundle(url: str, api_key: str, timeout: float) -> dict[str, Any]:
++    data = _unraid_graphql_request(
++        url,
++        api_key,
++        """
++        query {
++          info {
++            os {
++              platform
++              distro
++              release
++              uptime
++            }
++            cpu {
++              manufacturer
++              brand
++              cores
++              threads
++            }
++          }
++          metrics {
++            cpu {
++              cpus {
++                percentTotal
++              }
++            }
++            memory {
++              percentTotal
++              used
++              total
++            }
++          }
++          array {
++            state
++            capacity {
++              disks {
++                free
++                used
++                total
++              }
++            }
++            disks {
++              name
++              size
++              status
++              temp
++            }
++          }
++          docker {
++            containers {
++              id
++              names
++              state
++              status
++              autoStart
++            }
++          }
++          vms {
++            domain {
++              id
++              name
++              state
++              uuid
++            }
++          }
++        }
++        """,
++        timeout,
++    )
++    out: dict[str, Any] = {
++        "info": data.get("info") if isinstance(data.get("info"), dict) else {},
++        "metrics": data.get("metrics") if isinstance(data.get("metrics"), dict) else {},
++        "array": data.get("array") if isinstance(data.get("array"), dict) else {},
++        "docker": data.get("docker") if isinstance(data.get("docker"), dict) else {},
++        "vms": data.get("vms") if isinstance(data.get("vms"), dict) else {},
++    }
++    return out
++
++
++def get_unraid_optional_overview(url: str, api_key: str, timeout: float) -> dict[str, Any]:
++    data = _unraid_graphql_request(
++        url,
++        api_key,
++        """
++        query {
++          server {
++            name
++            status
++            lanip
++            localurl
++            remoteurl
++          }
++          services {
++            name
++            online
++            version
++          }
++          shares {
++            name
++            free
++            used
++            size
++            cache
++            comment
++            luksStatus
++          }
++          plugins {
++            name
++            version
++            hasApiModule
++            hasCliModule
++          }
++          disks {
++            name
++            device
++            type
++            size
++            smartStatus
++            temperature
++            isSpinning
++            vendor
++            interfaceType
++            firmwareRevision
++            serialNum
++          }
++        }
++        """,
++        timeout,
++    )
++    return {
++        "server": data.get("server") if isinstance(data.get("server"), dict) else {},
++        "services": data.get("services") if isinstance(data.get("services"), list) else [],
++        "shares": data.get("shares") if isinstance(data.get("shares"), list) else [],
++        "plugins": data.get("plugins") if isinstance(data.get("plugins"), list) else [],
++        "disks": data.get("disks") if isinstance(data.get("disks"), list) else [],
++    }
++
++
++def _unraid_graphql_request(url: str, api_key: str, query: str, timeout: float) -> dict[str, Any]:
++    endpoint = str(url or "").strip()
++    if not endpoint:
++        raise RuntimeError("Unraid API URL is not configured")
++    headers = {
++        "Content-Type": "application/json",
++        "Accept": "application/json",
++    }
++    key = str(api_key or "").strip()
++    if key:
++        headers["x-api-key"] = key
++    endpoints: list[str] = []
++    seen: set[str] = set()
++    for candidate in [endpoint, UNRAID_API_DEFAULT_URL, *UNRAID_API_FALLBACK_URLS]:
++        text = str(candidate or "").strip()
++        if text and text not in seen:
++            seen.add(text)
++            endpoints.append(text)
++    last_error = "unknown error"
++    response_body = ""
++    for candidate in endpoints:
++        req = urllib.request.Request(
++            candidate,
++            data=json.dumps({"query": query}).encode("utf-8"),
++            headers=headers,
++            method="POST",
++        )
++        try:
++            with urllib.request.urlopen(req, timeout=max(1.0, float(timeout))) as resp:  # nosec B310 - caller controls endpoint
++                response_body = resp.read().decode("utf-8", errors="ignore")
++            break
++        except urllib.error.HTTPError as exc:
++            detail = exc.read().decode("utf-8", errors="ignore") if hasattr(exc, "read") else ""
++            last_error = f"{candidate}: HTTP {exc.code}: {detail or exc.reason}"
++        except Exception as exc:  # pragma: no cover - depends on runtime networking
++            last_error = f"{candidate}: request failed: {exc}"
++    else:
++        raise RuntimeError(f"Unraid API request failed after fallback attempts ({last_error})")
++
++    try:
++        payload = json.loads(response_body)
++    except Exception as exc:
++        raise RuntimeError("Unraid API returned invalid JSON") from exc
++    if not isinstance(payload, dict):
++        raise RuntimeError("Unraid API returned an invalid response payload")
++    errors = payload.get("errors")
++    if isinstance(errors, list) and errors:
++        msg = "; ".join(str(row.get("message") or "GraphQL error") for row in errors if isinstance(row, dict))
++        raise RuntimeError(msg or "Unraid API returned GraphQL errors")
++    data = payload.get("data")
++    if not isinstance(data, dict):
++        raise RuntimeError("Unraid API response is missing data")
++    return data
++
++
++def _select_unraid_disk_temp(rows: list[dict[str, Any]], disk_device: Optional[str] = None) -> Optional[float]:
++    hint = _normalize_disk_token(disk_device)
++    temps: list[float] = []
++    for row in rows:
++        if not isinstance(row, dict):
++            continue
++        temp = safe_float(row.get("temperature"), None)
++        if temp is None or not (-20.0 <= temp <= 150.0):
++            continue
++        temp = float(temp)
++        temps.append(temp)
++        if hint:
++            for candidate in (row.get("name"), row.get("device"), row.get("serialNum"), row.get("serial")):
++                if _normalize_disk_token(candidate) == hint:
++                    return temp
++    if temps:
++        return max(temps)
++    return None
++
++
++__all__ = [
++    "UNRAID_API_DEFAULT_URL",
++    "UNRAID_API_FALLBACK_URLS",
++    "get_unraid_array_usage_pct",
++    "get_unraid_cpu_percent",
++    "get_unraid_disk_inventory",
++    "get_unraid_disk_temp_c",
++    "get_unraid_mem_percent",
++    "get_unraid_optional_overview",
++    "get_unraid_status_bundle",
++    "normalize_unraid_docker_data",
++    "normalize_unraid_vm_data",
++]
+--- a/tests/test_integration_registry.py
++++ b/tests/test_integration_registry.py
+@@ -50,6 +50,10 @@
+                 "docker_socket",
+                 "docker_polling_enabled",
+                 "docker_interval",
++                "unraid_api_enabled",
++                "unraid_api_url",
++                "unraid_api_key",
++                "unraid_api_interval",
+                 "virsh_binary",
+                 "vm_polling_enabled",
+                 "vm_interval",
+@@ -118,12 +122,14 @@
+         by_id = {row["integration_id"]: row for row in default_rows}
+         by_id_ha = {row["integration_id"]: row for row in homeassistant_rows}
+ 
+-        self.assertEqual([row["integration_id"] for row in default_rows], ["host", "docker", "vms"])
++        self.assertEqual([row["integration_id"] for row in default_rows], ["host", "docker", "vms", "unraid"])
+         self.assertEqual(by_id["host"]["label"], "Telemetry Sources")
+         self.assertEqual(by_id["host"]["action_group_title"], "Host Power")
+         self.assertEqual(by_id["docker"]["label"], "Docker")
+         self.assertEqual(by_id["docker"]["action_group_title"], "Docker Controls")
+         self.assertEqual(by_id["vms"]["action_group_title"], "VM Controls")
++        self.assertEqual(by_id["unraid"]["label"], "Unraid API")
++        self.assertEqual(by_id["unraid"]["action_group_title"], "Unraid API")
+ 
+         self.assertEqual(by_id_ha["docker"]["label"], "Add-ons")
+         self.assertEqual(by_id_ha["docker"]["action_group_title"], "Add-on Controls")
+@@ -322,6 +328,10 @@
+             "docker_socket": "/var/run/docker.sock",
+             "docker_polling_enabled": True,
+             "docker_interval": 2.0,
++            "unraid_api_enabled": True,
++            "unraid_api_url": "http://127.0.0.1/graphql",
++            "unraid_api_key": "abc123",
++            "unraid_api_interval": 5.0,
+             "virsh_binary": "virsh",
+             "vm_polling_enabled": True,
+             "vm_interval": 5.0,
+@@ -339,6 +349,11 @@
+         self.assertIn("--disable-gpu-polling", argv)
+         self.assertIn("--docker-socket", argv)
+         self.assertIn("/var/run/docker.sock", argv)
++        self.assertIn("--enable-unraid-api", argv)
++        self.assertIn("--unraid-api-url", argv)
++        self.assertIn("http://127.0.0.1/graphql", argv)
++        self.assertIn("--unraid-api-key", argv)
++        self.assertIn("abc123", argv)
+         self.assertIn("--virsh-binary", argv)
+         self.assertIn("virsh", argv)
+ 
+--- a/tests/test_unraid_webui.py
++++ b/tests/test_unraid_webui.py
+@@ -0,0 +1,51 @@
++from __future__ import annotations
++
++import json
++import tempfile
++import unittest
++from pathlib import Path
++from unittest import mock
++
++from esp_host_bridge.webui_app import create_app
++
++
++class UnraidWebUiTests(unittest.TestCase):
++    def test_api_status_merges_unraid_status_payload(self) -> None:
++        with tempfile.TemporaryDirectory() as td:
++            cfg_path = Path(td) / "config.json"
++            cfg_path.write_text(
++                json.dumps(
++                    {
++                        "serial_port": "",
++                        "baud": 115200,
++                        "interval": 1.0,
++                        "timeout": 2.0,
++                        "unraid_api_enabled": True,
++                        "unraid_api_url": "http://127.0.0.1/graphql",
++                        "unraid_api_key": "secret",
++                    }
++                ),
++                encoding="utf-8",
++            )
++            with mock.patch.dict("os.environ", {"WEBUI_CONFIG": str(cfg_path), "AUTOSTART": "0"}, clear=False):
++                with mock.patch(
++                    "esp_host_bridge.webui_app.get_unraid_status_bundle",
++                    return_value={"info": {"os": {"release": "7.2"}}, "array": {"state": "STARTED"}},
++                ), mock.patch(
++                    "esp_host_bridge.webui_app.get_unraid_optional_overview",
++                    return_value={"server": {"name": "tower"}, "services": [], "shares": [], "plugins": [], "disks": []},
++                ):
++                    app = create_app(autostart_override=False)
++                    client = app.test_client()
++                    resp = client.get("/api/status")
++                    self.assertEqual(resp.status_code, 200)
++                    data = resp.get_json() or {}
++                    status = data.get("unraid_status") or {}
++                    self.assertTrue(status)
++                    self.assertEqual(status.get("api_ok"), True)
++                    self.assertEqual((status.get("array") or {}).get("state"), "STARTED")
++                    self.assertEqual((status.get("server") or {}).get("name"), "tower")
++
++
++if __name__ == "__main__":
++    unittest.main()
