@@ -35,7 +35,7 @@ if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; t
   TAG_EXISTS_REMOTE=1
 fi
 
-if gh release view "${TAG}" >/dev/null 2>&1; then
+if gh release view "${TAG}" --repo "rog713/ESP-Host-Bridge-Unraid" >/dev/null 2>&1; then
   echo "GitHub release ${TAG} already exists. Bump the version before publishing." >&2
   exit 1
 fi
@@ -52,11 +52,16 @@ if [ "${TAG_EXISTS_REMOTE}" -eq 0 ]; then
   git push origin "${TAG}"
 fi
 
-gh release create "${TAG}" \
+gh api "repos/rog713/ESP-Host-Bridge-Unraid/releases" \
+  -X POST \
+  -f tag_name="${TAG}" \
+  -f name="${TAG}" \
+  -F draft=false \
+  -F prerelease=false >/dev/null
+
+gh release upload "${TAG}" \
   "unraid_plugin/dist/esp-host-bridge.plg" \
   "unraid_plugin/dist/esp-host-bridge-${VERSION}-noarch-1.txz" \
-  --repo "rog713/ESP-Host-Bridge-Unraid" \
-  --generate-notes \
-  --title "${TAG}"
+  --repo "rog713/ESP-Host-Bridge-Unraid"
 
 echo "Published ${TAG} with plugin assets."
