@@ -64,7 +64,7 @@ VERSION=2026.03.31.5 unraid_plugin/build_unraid_plugin.sh
 
 ## Publish a GitHub release
 
-Tagged releases now build the plugin artifacts in GitHub Actions and attach them to the GitHub release. This prevents two different local builds from reusing the same version string.
+Release publishing now happens through the local `gh` CLI script so the exact built `.plg` and `.txz` are uploaded immediately after validation.
 
 Publish flow:
 
@@ -82,9 +82,8 @@ The script:
 - runs the local test floor
 - rebuilds the plugin once locally
 - pushes `main`
-- creates and pushes tag `v<version>`
-
-GitHub Actions then rebuilds from the tagged source and publishes:
+- creates tag `v<version>` if needed
+- creates the GitHub release and uploads:
 
 - `esp-host-bridge.plg`
 - `esp-host-bridge-<version>-noarch-1.txz`

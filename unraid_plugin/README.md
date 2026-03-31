@@ -27,7 +27,7 @@ VERSION=2026.03.31.5 unraid_plugin/build_unraid_plugin.sh
 
 ## Release assets
 
-GitHub release assets are now built from tags in GitHub Actions.
+GitHub release assets are now published directly from the local validated build.
 
 Publish from the repo root with:
 
@@ -35,7 +35,7 @@ Publish from the repo root with:
 scripts/publish_github_release.sh
 ```
 
-That script validates the tree, builds once locally, pushes `main`, and pushes tag `v<version>`. The release workflow then rebuilds and uploads:
+That script validates the tree, builds once locally, pushes `main`, creates tag `v<version>` if needed, and uploads:
 
 - `dist/esp-host-bridge.plg`
 - `dist/esp-host-bridge-<version>-noarch-1.txz`
